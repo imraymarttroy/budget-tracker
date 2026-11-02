@@ -1,34 +1,40 @@
+/* PassbookHub palette: #FFFFFA #515052 #000103 #333138 #FF312E */
 :root {
   color-scheme: light;
-  --page: #f9f9f7;
-  --surface: #fcfcfb;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --line: #e1e0d9;
-  --line-strong: #c3c2b7;
-  --accent: #2a78d6;
+  --page: #fffffa;
+  --surface: #ffffff;
+  --ink: #000103;
+  --ink-2: #515052;
+  --line: #e6e5e2;
+  --line-strong: #c4c3c6;
+  --accent: #ff312e;
+  --brand: #ff312e;
+  --meter: #333138;
   --good: #0ca30c;
   --warning: #fab219;
-  --critical: #d03b3b;
-  --critical-ink: #b02c2c;
-  --on-ink: #fcfcfb;
-  --wash: rgba(11, 11, 11, 0.05);
+  --critical: #d42a27;
+  --critical-ink: #b3201d;
+  --on-ink: #fffffa;
+  --wash: rgba(0, 1, 3, 0.05);
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --page: #0d0d0d;
-    --surface: #1a1a19;
-    --ink: #f0efec;
-    --ink-2: #c3c2b7;
-    --line: #2c2c2a;
-    --line-strong: #4a4a46;
-    --accent: #3987e5;
-    --critical-ink: #f08a8a;
-    --on-ink: #0d0d0d;
-    --wash: rgba(255, 255, 255, 0.07);
+    --page: #000103;
+    --surface: #18171b;
+    --ink: #fffffa;
+    --ink-2: #c6c5c8;
+    --line: #333138;
+    --line-strong: #515052;
+    --accent: #ff312e;
+    --brand: #ff4744;
+    --meter: #fffffa;
+    --critical: #ff5c59;
+    --critical-ink: #ff8a88;
+    --on-ink: #000103;
+    --wash: rgba(255, 255, 250, 0.07);
   }
 }
 
@@ -80,7 +86,7 @@ a { color: inherit; text-underline-offset: 2px; }
   padding: 1.25rem 1rem 4rem;
 }
 
-.brand { font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
+.brand { color: var(--brand); font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
 
 .intro { margin-bottom: 2rem; }
 .intro .brand { display: block; font-size: 1.5rem; margin-bottom: 0.25rem; }
@@ -109,7 +115,7 @@ a { color: inherit; text-underline-offset: 2px; }
   font-weight: 500;
 }
 .tabs a:hover { color: var(--ink); }
-.tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
 
 /* ---------- Forms ---------- */
 
@@ -271,7 +277,7 @@ a.link { display: inline-flex; align-items: center; }
 .num { font-variant-numeric: tabular-nums; }
 
 .meter {
-  --fill: var(--accent);
+  --fill: var(--meter);
   height: 8px;
   margin: 0.5rem 0;
   border-radius: 4px;
