@@ -209,7 +209,7 @@
     const changed = view !== state.view;
     state.view = view;
     state.refreshDashboard = null;
-    document.title = VIEWS[view].title + ' · 50/30/20';
+    document.title = VIEWS[view].title + ' · PassbookHub';
     root.replaceChildren(VIEWS[view].render(view));
     if (changed) {
       window.scrollTo(0, 0);
@@ -228,7 +228,7 @@
     state.notice = null;
     return h('div', { class: 'narrow' },
       h('header', { class: 'intro' },
-        h('h1', { class: 'brand' }, '50/30/20'),
+        h('h1', { class: 'brand' }, 'PassbookHub'),
         h('p', { class: 'muted' }, 'Half for needs, some for wants, the rest for later.')),
       h('nav', { class: 'tabs', 'aria-label': 'Account' },
         h('a', { href: '#signin', 'aria-current': view === 'signin' ? 'page' : null }, 'Sign in'),
@@ -412,7 +412,7 @@
     }
 
     return h('div', { class: 'narrow' },
-      h('span', { class: 'brand step-brand' }, '50/30/20'),
+      h('span', { class: 'brand step-brand' }, 'PassbookHub'),
       h('header', { class: 'intro' },
         h('h1', null, 'Verify your email'),
         h('p', { class: 'muted' }, 'Enter the 6-digit code for ' + user.email + '. It expires in 15 minutes.')),
@@ -510,7 +510,7 @@
     else showRequest();
 
     return h('div', { class: 'narrow' },
-      h('span', { class: 'brand step-brand' }, '50/30/20'),
+      h('span', { class: 'brand step-brand' }, 'PassbookHub'),
       h('header', { class: 'intro' }, h('h1', null, 'Reset your password'), header),
       content,
       h('p', { class: 'small', style: 'margin-top:1rem' },
@@ -642,7 +642,7 @@
         }, 'Skip for now')));
 
     return h('div', { class: 'narrow' },
-      h('span', { class: 'brand step-brand' }, '50/30/20'),
+      h('span', { class: 'brand step-brand' }, 'PassbookHub'),
       h('header', { class: 'intro' },
         h('h1', null, 'Welcome, ' + user.name),
         h('p', { class: 'muted' }, 'Add a picture and a short bio. You can change these at any time.')),
@@ -721,7 +721,7 @@
 
   function topbar() {
     return h('header', { class: 'topbar' },
-      h('a', { class: 'brand', href: '#dashboard' }, '50/30/20'),
+      h('a', { class: 'brand', href: '#dashboard' }, 'PassbookHub'),
       h('nav', { 'aria-label': 'Main' },
         h('a', { class: 'link', href: '#dashboard', 'aria-current': state.view === 'dashboard' ? 'page' : null }, 'Dashboard'),
         h('a', { class: 'link', href: '#profile', 'aria-current': state.view === 'profile' ? 'page' : null }, 'Profile'),
@@ -993,7 +993,7 @@
     function exportCsv() {
       const blob = new Blob(['﻿' + BT.toCsv(BT.listTx(user.id))], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      const link = h('a', { href: url, download: '50-30-20-' + BT.today() + '.csv' });
+      const link = h('a', { href: url, download: 'passbookhub-' + BT.today() + '.csv' });
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1034,7 +1034,7 @@
 
   function fatal(message) {
     root.replaceChildren(h('div', { class: 'narrow' },
-      h('h1', { style: 'margin-bottom:0.5rem' }, '50/30/20'),
+      h('h1', { style: 'margin-bottom:0.5rem' }, 'PassbookHub'),
       h('p', null, message)));
   }
 

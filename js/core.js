@@ -191,7 +191,7 @@ window.BT = (function () {
     else {
       const age = ageOn(input.birthday, onDate);
       if (age === null || input.birthday > onDate) errors.birthday = 'Enter a valid birthday.';
-      else if (age < MIN_AGE) errors.birthday = 'You must be ' + MIN_AGE + ' or older to use 50/30/20.';
+      else if (age < MIN_AGE) errors.birthday = 'You must be ' + MIN_AGE + ' or older to use PassbookHub.';
       else if (age > 130) errors.birthday = 'Enter a valid birthday.';
     }
 
