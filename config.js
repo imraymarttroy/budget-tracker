@@ -33,5 +33,22 @@
  *   }
  */
 window.BudgetConfig = {
-  sendEmail: null
+  sendEmail: async function (mail) {
+    const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        service_id: 'service_roath8m',
+        template_id: 'template_l8azner',
+        user_id: '2NMVVHE0LHdwshsyP',
+        template_params: {
+          to_email: mail.to,
+          to_name: mail.toName,
+          subject: mail.subject,
+          message: mail.text
+        }
+      })
+    });
+    if (!response.ok) throw new Error(await response.text());
+  }
 };

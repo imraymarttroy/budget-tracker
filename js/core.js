@@ -314,7 +314,7 @@ window.BT = (function () {
         toName: user.name,
         purpose: purpose,
         code: code,
-        subject: isReset ? 'Reset your 50/30/20 password' : 'Verify your 50/30/20 email',
+        subject: isReset ? 'Reset your PassbookHub password' : 'Verify your PassbookHub email',
         text: 'Your ' + (isReset ? 'password reset' : 'verification') + ' code is ' + code + '. It expires in 15 minutes.'
       });
     } catch (e) {
