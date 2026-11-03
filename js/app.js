@@ -338,7 +338,8 @@
   function openLanguagePicker(opener) {
     let region = 'all';
     let chosen = currentLanguage();
-    const listBox = h('div', { class: 'lang-list', role: 'group', 'aria-label': 'Languages' });
+    const listBox = h('div', { class: 'lang-cols', role: 'group', 'aria-label': 'Languages' });
+    const listScroll = h('div', { class: 'lang-list' }, listBox);
     const regionBox = h('div', { class: 'lang-regions', role: 'group', 'aria-label': 'Regions' });
     const suggestedBox = h('div', { class: 'lang-suggested-list' });
 
@@ -368,7 +369,7 @@
     const card = h('div', { class: 'lang-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'lang-title' },
       h('div', { class: 'lang-head' }, h('h2', { id: 'lang-title' }, 'Select your language'), closeBtn),
       h('div', { class: 'lang-suggested' }, h('span', { class: 'lang-label' }, 'Suggested languages'), suggestedBox),
-      h('div', { class: 'lang-body' }, regionBox, listBox));
+      h('div', { class: 'lang-body' }, regionBox, listScroll));
     const overlay = h('div', { class: 'lang-overlay' }, card);
     function onKey(event) {
       if (event.key === 'Escape') { event.preventDefault(); close(); }
