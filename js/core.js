@@ -11,7 +11,7 @@ window.BT = (function () {
     { id: 'savings', label: 'Savings', share: 20, hint: 'Emergency fund, investments, extra debt payments.' }
   ];
   const TYPE_LABELS = { income: 'Income', needs: 'Needs', wants: 'Wants', savings: 'Savings' };
-  const CURRENCIES = ['USD', 'EUR', 'GBP', 'PHP', 'CAD', 'AUD', 'NZD', 'SGD', 'JPY', 'KRW', 'CNY', 'HKD', 'INR', 'IDR', 'MYR', 'THB', 'VND', 'AED', 'SAR', 'ZAR', 'BRL', 'MXN', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN'];
+  const CURRENCIES = ['PHP', 'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'SGD', 'JPY', 'KRW', 'CNY', 'HKD', 'INR', 'IDR', 'MYR', 'THB', 'VND', 'AED', 'SAR', 'ZAR', 'BRL', 'MXN', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN'];
   const REGION_CURRENCY = {
     US: 'USD', GB: 'GBP', PH: 'PHP', CA: 'CAD', AU: 'AUD', NZ: 'NZD', SG: 'SGD', JP: 'JPY', KR: 'KRW', CN: 'CNY',
     HK: 'HKD', IN: 'INR', ID: 'IDR', MY: 'MYR', TH: 'THB', VN: 'VND', AE: 'AED', SA: 'SAR', ZA: 'ZAR', BR: 'BRL',
@@ -167,7 +167,22 @@ window.BT = (function () {
 
   /* ---------- Accounts ---------- */
 
+  /** "PHP · Philippine peso (₱)", in the browser's language where it can. */
+  function currencyLabel(code) {
+    let name = code, symbol = '';
+    try { name = new Intl.DisplayNames(undefined, { type: 'currency' }).of(code) || code; } catch (e) { /* keep the code */ }
+    try {
+      const part = new Intl.NumberFormat(undefined, { style: 'currency', currency: code, currencyDisplay: 'narrowSymbol' })
+        .formatToParts(0).find(function (p) { return p.type === 'currency'; });
+      if (part && part.value !== code) symbol = ' (' + part.value + ')';
+    } catch (e) { /* no symbol */ }
+    return code + ' · ' + name + symbol;
+  }
+
   function guessCurrency() {
+    try {
+      if (Intl.DateTimeFormat().resolvedOptions().timeZone === 'Asia/Manila') return 'PHP';
+    } catch (e) { /* fall through to the language guess */ }
     try {
       const region = new Intl.Locale(navigator.language).region;
       return REGION_CURRENCY[region] || 'USD';
@@ -455,7 +470,7 @@ window.BT = (function () {
   }
 
   return {
-    BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES,
+    BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES, currencyLabel: currencyLabel,
     RESEND_COOLDOWN_MS: RESEND_COOLDOWN_MS, MIN_AGE: MIN_AGE,
     UserError: UserError, FieldError: FieldError,
     today: today, parseDate: parseDate, ageOn: ageOn, monthOf: monthOf, addMonths: addMonths,

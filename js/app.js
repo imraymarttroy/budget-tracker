@@ -616,7 +616,7 @@
     nameControl.addEventListener('input', fields.redraw);
 
     const currency = h('select', { id: 'f-currency', name: 'currency', 'aria-describedby': 'f-currency-hint' },
-      BT.CURRENCIES.map(function (code) { return h('option', { value: code }, code); }));
+      BT.CURRENCIES.map(function (code) { return h('option', { value: code }, BT.currencyLabel(code)); }));
     currency.value = user.currency;
 
     const form = h('form', {
