@@ -1415,7 +1415,20 @@
       function seen() {
         if (document.visibilityState === 'visible') SOC.markSeen(person.id).catch(function () {});
       }
-      state.onChatsChange = seen;
+
+      /* "Sent" / "Seen 10:02 AM" under your newest message. */
+      let receipt = null;
+      let receiptFor = 0;
+      function updateReceipt() {
+        if (!receipt) return;
+        const chat = SOC.chatWith(person.id);
+        const theirSeen = chat && chat.seen ? chat.seen[person.id] || 0 : 0;
+        const isSeen = theirSeen >= receiptFor;
+        receipt.textContent = isSeen ? 'Seen ' + clockTime(theirSeen) : 'Sent';
+        receipt.className = 'bubble-receipt small muted' + (isSeen ? ' seen' : '');
+        receipt.title = isSeen ? 'Seen by ' + first + ' · ' + dayLabel(theirSeen) + ', ' + clockTime(theirSeen) : 'Not seen yet';
+      }
+      state.onChatsChange = function () { seen(); updateReceipt(); };
 
       function drawMessages(messages) {
         if (closed) return;
@@ -1430,6 +1443,9 @@
         } else {
           const nodes = [];
           let lastDay = null;
+          let newestMine = null;
+          messages.forEach(function (m) { if (m.from === me.id) newestMine = m; });
+          receipt = null;
           messages.forEach(function (m) {
             const day = new Date(m.createdAt).toDateString();
             if (day !== lastDay) {
@@ -1442,9 +1458,12 @@
               new Date(next.createdAt).toDateString() !== day;
             nodes.push(h('div', { class: 'bubble-row' + (mine ? ' mine' : '') },
               h('p', { class: 'bubble', title: clockTime(m.createdAt) }, m.text),
-              lastOfRun ? h('span', { class: 'bubble-time small muted' }, clockTime(m.createdAt)) : null));
+              lastOfRun ? h('span', { class: 'bubble-time small muted' }, clockTime(m.createdAt)) : null,
+              m === newestMine ? (receipt = h('span', { class: 'bubble-receipt small muted', 'aria-live': 'polite' })) : null));
           });
+          receiptFor = newestMine ? newestMine.createdAt : 0;
           thread.replaceChildren.apply(thread, nodes);
+          updateReceipt();
         }
         if (firstDraw || nearBottom) thread.scrollTop = thread.scrollHeight;
         firstDraw = false;
