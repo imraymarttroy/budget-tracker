@@ -29,7 +29,7 @@ try {
   await import('./quotes.js?v=2');
   await import('./core.js?v=12');
   await import('./social.js?v=19');
-  await import('./app.js?v=33');
+  await import('./app.js?v=34');
 } catch (error) {
   console.error(error);
   fail('PassbookHub could not start. Check your internet connection and reload the page.');

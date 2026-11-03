@@ -1684,6 +1684,23 @@
     });
   }
 
+  /* Cover photos, remembered so the profile doesn't flash red before the photo arrives.
+     Yours is also kept in this browser between visits. undefined = not known yet, null = no cover. */
+  const coverMemo = {};
+  function coverFromCache(uid) {
+    if (uid in coverMemo) return coverMemo[uid];
+    const me = BT.currentUser();
+    if (me && uid === me.id) {
+      try { const v = localStorage.getItem('pbh.cover.' + uid); if (v !== null) return (coverMemo[uid] = v || null); } catch (e) { /* storage off */ }
+    }
+    return undefined;
+  }
+  function rememberCover(uid, cover) {
+    coverMemo[uid] = cover || null;
+    const me = BT.currentUser();
+    if (me && uid === me.id) { try { localStorage.setItem('pbh.cover.' + uid, cover || ''); } catch (e) { /* storage full or off */ } }
+  }
+
   function birthdayLabel(mmdd) {
     const parts = mmdd.split('-');
     return new Date(2000, Number(parts[0]) - 1, Number(parts[1])).toLocaleDateString(I18N.locale, { month: 'long', day: 'numeric' });
@@ -1725,8 +1742,17 @@
         person.bio ? h('p', { class: 'pf-bio' }, person.bio) : (opts.mine ? h('p', { class: 'pf-bio muted-on-brand' }, 'Add a short bio so your circle knows you.') : null),
         opts.actions ? h('div', { class: 'pf-actions' }, opts.actions) : null),
       h('div', { class: 'pf-hero-photo' }, heroNote, avatar(person, person.avatar, 9)));
-    SOC.loadCover(person.id).then(function (cover) {
+    function applyCover(cover, fade) {
+      hero.classList.toggle('cover-fade', !!fade);
       if (cover) { hero.style.setProperty('--cover', 'url("' + cover + '")'); hero.classList.add('has-cover'); }
+      else { hero.style.removeProperty('--cover'); hero.classList.remove('has-cover'); }
+    }
+    const knownCover = coverFromCache(person.id);
+    if (knownCover !== undefined) applyCover(knownCover, false);
+    SOC.loadCover(person.id).then(function (cover) {
+      if (cover === knownCover) return;
+      rememberCover(person.id, cover);
+      applyCover(cover, knownCover === undefined);
     }).catch(function () {});
 
     const work = sortedWork(person.work);
@@ -1999,6 +2025,7 @@
           await BT.updateUser(user.id, { avatar: fields.data.picture, bio: fields.bio.value.trim() });
           await SOC.syncProfile(BT.currentUser());
           await SOC.saveProfileExtras({ cover: cover, education: read('edu'), work: read('work') });
+          rememberCover(user.id, cover);
           const total = showSavings.checked ? await SOC.savingsTotal(null) : null;
           await SOC.saveCircleInfo({ showSavings: showSavings.checked, savingsCents: total, currency: user.currency, showBirthday: showBirthday.checked, birthday: user.birthday });
           toast('Profile saved.');
@@ -2160,24 +2187,36 @@
   }
 
 
+  let lastOwnProfile = null;
   function viewTimeline() {
     const user = BT.currentUser();
-    const box = h('div', { class: 'wide pf-wide' }, h('p', { class: 'muted' }, 'Loading profile…'));
+    const box = h('div', { class: 'wide pf-wide' });
+    let shownKey = null;
+    function paint(p) {
+      const me = BT.currentUser();
+      const person = Object.assign({}, p || {}, { id: me.id, name: me.name, username: me.username, avatar: me.avatar, bio: me.bio });
+      const key = JSON.stringify([person.name, person.username, person.avatar ? person.avatar.length : 0, person.bio, person.education || [], person.work || []]);
+      if (key === shownKey) return;
+      shownKey = key;
+      box.replaceChildren(profilePage(person, {
+          mine: true,
+          onEdit: function () { editProfile(redrawAll); },
+          actions: [
+            h('button', { type: 'button', class: 'btn pf-btn', onclick: function () { editProfile(redrawAll); } }, icon('edit'), h('span', null, 'Edit profile')),
+            h('a', { class: 'btn pf-btn ghost', href: '#feed' }, navIcon('feed'), h('span', null, 'Go to Feed'))
+          ]
+        }));
+    }
     function draw() {
       const me = BT.currentUser();
       SOC.loadProfile(me.id).catch(function () { return null; }).then(function (p) {
         if (!box.isConnected && box.parentNode) return;
-        const person = Object.assign({}, p || {}, { id: me.id, name: me.name, username: me.username, avatar: me.avatar, bio: me.bio });
-        box.replaceChildren(profilePage(person, {
-          mine: true,
-          onEdit: function () { editProfile(draw); },
-          actions: [
-            h('button', { type: 'button', class: 'btn pf-btn', onclick: function () { editProfile(draw); } }, icon('edit'), h('span', null, 'Edit profile')),
-            h('a', { class: 'btn pf-btn ghost', href: '#feed' }, navIcon('feed'), h('span', null, 'Go to Feed'))
-          ]
-        }));
+        if (p) lastOwnProfile = p;
+        paint(p || lastOwnProfile);
       });
     }
+    function redrawAll() { shownKey = null; draw(); }
+    paint(lastOwnProfile);
     draw();
     return box;
   }
