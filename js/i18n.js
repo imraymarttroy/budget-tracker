@@ -31,6 +31,8 @@
     'Messages': 'Mga Mensahe',
     'Notifications': 'Mga Notipikasyon',
     'Settings': 'Mga Setting',
+    'Collapse sidebar': 'Itiklop ang sidebar',
+    'Expand sidebar': 'Palawakin ang sidebar',
     'Could not load': 'Hindi ma-load',
     'Finish signing up': 'Tapusin ang pag-sign up',
     'Main': 'Pangunahin',

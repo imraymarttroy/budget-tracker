@@ -1023,8 +1023,9 @@
     circle: '<circle cx="7" cy="7.5" r="2.75"/><circle cx="13.5" cy="8" r="2.25"/><path d="M2.5 16c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4M12 12.2c2.3-.4 4.5.9 5.2 3.8"/>',
     messages: '<path d="M3.5 5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-3.5 3v-3a2 2 0 0 1-2-2z"/>',
     notifications: '<path d="M5 13.5V9a5 5 0 0 1 10 0v4.5l1.5 1.5h-13z"/><path d="M8.5 17.5a1.6 1.6 0 0 0 3 0"/>',
-    settings: '<circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/>',
-    signout: '<path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H7.5"/>'
+    settings: '<g transform="scale(0.8333)" stroke-width="1.9"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></g>',
+    signout: '<path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H7.5"/>',
+    collapse: '<rect x="3" y="3.5" width="14" height="13" rx="2"/><path d="M8 3.5v13M13.5 8 11.5 10l2 2"/>'
   };
 
   function navIcon(name) {
@@ -1034,6 +1035,7 @@
   }
 
   const badges = [];
+  let lastNoteCount = 0;
 
   function drawBadges() {
     badges.forEach(function (badge) {
@@ -1043,6 +1045,29 @@
       badge.hidden = count === 0;
       badge.setAttribute('aria-label', count + ' new');
     });
+    const notes = SOC.unreadCount();
+    if (notes > lastNoteCount) ringBell();
+    lastNoteCount = notes;
+  }
+
+  /** Swings the bell in the top bar, like it is ringing. */
+  function ringBell() {
+    document.querySelectorAll('.bell').forEach(function (bell) {
+      bell.classList.remove('ring');
+      void bell.offsetWidth; /* restart the animation if it is already running */
+      bell.classList.add('ring');
+    });
+  }
+  document.addEventListener('animationend', function (event) {
+    const bell = event.target.closest && event.target.closest('.bell');
+    if (bell) bell.classList.remove('ring');
+  });
+  /* Keep ringing every so often while there are unread notifications. */
+  setInterval(function () { if (SOC.unreadCount() > 0) ringBell(); }, 10000);
+
+  const SIDEBAR_KEY = 'pbh.sidebarCollapsed';
+  function sidebarCollapsed() {
+    try { return localStorage.getItem(SIDEBAR_KEY) === '1'; } catch (e) { return false; }
   }
 
   let socialFor = null;
@@ -1059,16 +1084,34 @@
     const user = BT.currentUser();
     const current = view === 'chat' ? 'messages' : view;
     function item(name, href, label) {
-      const link = h('a', { class: 'nav-item', href: href, 'aria-current': current === name ? 'page' : null }, navIcon(name), h('span', null, label));
-      if (name === 'notifications' || name === 'messages') {
+      const link = h('a', { class: 'nav-item', href: href, title: label, 'aria-current': current === name ? 'page' : null }, navIcon(name), h('span', null, label));
+      if (name === 'messages') {
         const badge = h('span', { class: 'nav-badge', hidden: true, 'data-kind': name });
         badges.push(badge);
         link.appendChild(badge);
       }
       return h('li', null, link);
     }
+    const collapsed = sidebarCollapsed();
+    const toggle = h('button', {
+      type: 'button',
+      class: 'icon-btn sidebar-toggle',
+      'aria-expanded': String(!collapsed),
+      'aria-label': collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      title: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      onclick: function () {
+        const now = !shellEl.classList.contains('collapsed');
+        shellEl.classList.toggle('collapsed', now);
+        try { localStorage.setItem(SIDEBAR_KEY, now ? '1' : '0'); } catch (e) { /* only lasts until reload */ }
+        toggle.setAttribute('aria-expanded', String(!now));
+        toggle.setAttribute('aria-label', now ? 'Expand sidebar' : 'Collapse sidebar');
+        toggle.title = now ? 'Expand sidebar' : 'Collapse sidebar';
+      }
+    }, navIcon('collapse'));
     const side = h('aside', { class: 'sidebar' },
-      h('a', { class: 'brand sidebar-brand', href: '#dashboard' }, 'PassbookHub'),
+      h('div', { class: 'sidebar-head' },
+        h('a', { class: 'brand sidebar-brand', href: '#dashboard' }, 'PassbookHub'),
+        toggle),
       h('a', { class: 'sidebar-me', href: '#profile' },
         avatar(user, user.avatar, 2.25),
         h('span', null, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username))),
@@ -1078,11 +1121,10 @@
           item('profile', '#profile', 'Profile'),
           item('circle', '#circle', 'Circle'),
           item('messages', '#messages', 'Messages'),
-          item('notifications', '#notifications', 'Notifications'),
-          item('settings', '#settings', 'Settings'),
           h('li', null, h('button', {
             type: 'button',
             class: 'nav-item',
+            title: 'Sign out',
             onclick: function () {
               toastBox.hidden = true;
               state.notice = 'You have signed out.';
@@ -1093,8 +1135,17 @@
               BT.signOut();
             }
           }, navIcon('signout'), h('span', null, 'Sign out'))))));
+    const bellBadge = h('span', { class: 'nav-badge top-badge', hidden: true, 'data-kind': 'notifications' });
+    badges.push(bellBadge);
+    const topbar = h('div', { class: 'topbar' },
+      h('div', { class: 'topbar-tools' },
+        h('a', { class: 'icon-btn top-icon bell', href: '#notifications', title: 'Notifications', 'aria-label': 'Notifications',
+          'aria-current': current === 'notifications' ? 'page' : null }, navIcon('notifications'), bellBadge),
+        h('a', { class: 'icon-btn top-icon', href: '#settings', title: 'Settings', 'aria-label': 'Settings',
+          'aria-current': current === 'settings' ? 'page' : null }, navIcon('settings'))));
+    const shellEl = h('div', { class: 'app-shell' + (collapsed ? ' collapsed' : '') }, side, h('div', { class: 'app-main' }, topbar, content));
     drawBadges();
-    return h('div', { class: 'app-shell' }, side, h('div', { class: 'app-main' }, content));
+    return shellEl;
   }
 
   /* ---------- Profiles and posts ---------- */
