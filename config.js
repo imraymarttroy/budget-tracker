@@ -12,5 +12,7 @@ window.BudgetConfig = {
     storageBucket: 'passbookhub-24184.firebasestorage.app',
     messagingSenderId: '509354772013',
     appId: '1:509354772013:web:500dad604ebcb0abea5aa4'
-  }
+  },
+  /* App Check (Fraud Defense / reCAPTCHA Enterprise). The site key is public by design. */
+  appCheckSiteKey: '6LeIWA4uAAAAAJFJiukgbE-FOnIo1mg3Vi3z58uK'
 };

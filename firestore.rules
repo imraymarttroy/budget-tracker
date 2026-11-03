@@ -27,7 +27,8 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, delete: if signedInAs(uid);
       allow create, update: if signedInAs(uid)
-        && request.resource.data.keys().hasOnly(['name', 'birthday', 'username', 'profileDone', 'avatar', 'bio', 'currency', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['name', 'birthday', 'username', 'profileDone', 'avatar', 'bio', 'currency', 'createdAt', 'needsMfa'])
+        && (!('needsMfa' in request.resource.data) || request.resource.data.needsMfa is bool)
         && request.resource.data.name is string && request.resource.data.name.size() <= 60
         && request.resource.data.bio is string && request.resource.data.bio.size() <= 160
         && (request.resource.data.avatar == null

@@ -230,6 +230,7 @@
     if (!user) return ['signin', 'signup', 'forgot'].indexOf(wanted) !== -1 ? wanted : 'signin';
     if (!user.verified) return 'verify';
     if (!user.profileDone) return 'setup';
+    if (user.needsMfa && !BT.mfaOn() && !state.mfaSkipped) return 'secure';
     if (/^u\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'person';
     if (/^chat\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'chat';
     if (/^d\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'shared';
@@ -249,6 +250,7 @@
     forgot: { title: 'Reset password', render: viewForgot },
     verify: { title: 'Verify your email', render: viewVerify },
     setup: { title: 'Set up your profile', render: viewSetup },
+    secure: { title: 'Secure your account', render: viewSecure },
     dashboard: { title: 'Dashboard', render: viewDashboard },
     feed: { title: 'Feed', render: viewFeed },
     profile: { title: 'Profile', render: viewTimeline },
@@ -301,9 +303,193 @@
     }
   }
 
+  /* ---------- Two-step verification (authenticator app) ---------- */
+
+  let qrLoading = null;
+  function loadQr() {
+    if (window.qrcode) return Promise.resolve(window.qrcode);
+    if (!qrLoading) {
+      qrLoading = new Promise(function (resolve, reject) {
+        const tag = document.createElement('script');
+        tag.src = 'js/vendor/qrcode.js?v=1';
+        tag.onload = function () { resolve(window.qrcode); };
+        tag.onerror = function () { qrLoading = null; reject(new BT.UserError('We could not load the QR code.')); };
+        document.head.appendChild(tag);
+      });
+    }
+    return qrLoading;
+  }
+
+  /** Draws a QR code for text onto a canvas (dark squares only, no markup from outside). */
+  function qrCanvas(qrcode, text, size) {
+    const qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    const count = qr.getModuleCount();
+    const quiet = 4;
+    const scale = Math.max(2, Math.floor(size / (count + quiet * 2)));
+    const px = (count + quiet * 2) * scale;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = px;
+    canvas.className = 'otp-qr';
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', 'QR code to add PassbookHub to your authenticator app');
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, px, px);
+    ctx.fillStyle = '#000103';
+    for (let r = 0; r < count; r++) for (let c = 0; c < count; c++) if (qr.isDark(r, c)) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
+    return canvas;
+  }
+
+  function codeInput(id) {
+    return h('input', { id: id, name: 'otp', class: 'otp-input', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 7, placeholder: '123 456', pattern: '[0-9 ]*', 'aria-describedby': id + '-error' });
+  }
+
+  /** The 6-digit code step when signing in. */
+  function otpDialog(pending) {
+    document.querySelectorAll('.otp-overlay').forEach(function (o) { o.remove(); });
+    const input = codeInput('f-otp-signin');
+    const err = h('p', { class: 'error small', id: 'f-otp-signin-error', role: 'alert', hidden: true });
+    const go = h('button', { type: 'submit', class: 'btn primary full' }, 'Verify');
+    const form = h('form', {
+      class: 'acct-form', novalidate: true,
+      onsubmit: async function (event) {
+        event.preventDefault();
+        err.hidden = true;
+        go.disabled = true; go.textContent = 'Checking…';
+        try {
+          await BT.resolveMfa(pending, input.value);
+          close();
+          /* The session listener signs you in and redraws. */
+        } catch (error) {
+          go.disabled = false; go.textContent = 'Verify';
+          err.textContent = error instanceof BT.FieldError ? error.fields.otp || error.message : error.message || 'Something went wrong. Please try again.';
+          err.hidden = false;
+          input.select();
+        }
+      }
+    },
+    h('div', { class: 'otp-head' }, h('span', { class: 'otp-icon', 'aria-hidden': 'true' }, icon('check')),
+      h('h2', { id: 'otp-title' }, 'Two-step verification'),
+      h('p', { class: 'muted small' }, 'Open your authenticator app and enter the 6-digit code for PassbookHub.')),
+    h('div', { class: 'acct-field' }, h('label', { for: 'f-otp-signin' }, 'Code'), input, err),
+    go,
+    h('button', { type: 'button', class: 'link small', onclick: function () { close(); } }, 'Cancel'));
+    const overlay = h('div', { class: 'chat-overlay ask otp-overlay' },
+      h('div', { class: 'ask-card otp-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'otp-title' }, form));
+    function close() { overlay.remove(); }
+    input.addEventListener('input', function () {
+      const digits = input.value.replace(/[^0-9]/g, '').slice(0, 6);
+      input.value = digits.length > 3 ? digits.slice(0, 3) + ' ' + digits.slice(3) : digits;
+      if (digits.length === 6) form.requestSubmit();
+    });
+    document.body.appendChild(overlay);
+    input.focus();
+  }
+
+  /**
+   * Turning it on: scan the QR (or type the key), then enter the first code.
+   * opts: { onDone(), onSkip?() } — onSkip is offered only if the project can't do it yet.
+   */
+  function totpSetup(opts) {
+    const box = h('div', { class: 'otp-setup' }, h('p', { class: 'muted small' }, 'Preparing your QR code…'));
+    let started = null;
+    async function begin() {
+      try {
+        const results = await Promise.all([BT.startTotp(), loadQr()]);
+        started = results[0];
+        draw(results[1]);
+      } catch (error) {
+        box.replaceChildren(
+          h('p', { class: 'form-error', role: 'alert' }, error.message || 'We could not start two-step verification.'),
+          h('div', { class: 'row' },
+            h('button', { type: 'button', class: 'btn', onclick: function () { box.replaceChildren(h('p', { class: 'muted small' }, 'Preparing your QR code…')); begin(); } }, 'Try again'),
+            opts.onSkip ? h('button', { type: 'button', class: 'link', onclick: opts.onSkip }, 'Continue for now') : null));
+      }
+    }
+    function draw(qrcode) {
+      const input = codeInput('f-otp-setup');
+      const err = h('p', { class: 'error small', id: 'f-otp-setup-error', role: 'alert', hidden: true });
+      const go = h('button', { type: 'submit', class: 'btn primary' }, 'Turn on');
+      const keyText = started.key.replace(/(.{4})/g, '$1 ').trim();
+      const form = h('form', {
+        class: 'stack', novalidate: true,
+        onsubmit: async function (event) {
+          event.preventDefault();
+          err.hidden = true; go.disabled = true; go.textContent = 'Checking…';
+          try { await BT.finishTotp(started, input.value); toast('Two-step verification is on.'); opts.onDone(); }
+          catch (error) {
+            go.disabled = false; go.textContent = 'Turn on';
+            err.textContent = error instanceof BT.FieldError ? error.fields.otp || error.message : error.message;
+            err.hidden = false;
+          }
+        }
+      },
+      h('ol', { class: 'otp-steps' },
+        h('li', null, 'Install an authenticator app, like Google Authenticator or Microsoft Authenticator.'),
+        h('li', null, 'Scan this QR code with the app, or ', h('a', { href: started.url }, 'open it in the app'), ' on this phone.'),
+        h('li', null, 'Enter the 6-digit code the app shows.')),
+      h('div', { class: 'otp-qr-wrap' }, qrCanvas(qrcode, started.url, 220),
+        h('div', { class: 'otp-key' }, h('span', { class: 'small muted' }, 'Can’t scan? Enter this key:'), h('code', null, keyText),
+          h('button', { type: 'button', class: 'link small', onclick: function () { if (navigator.clipboard) navigator.clipboard.writeText(started.key).then(function () { toast('Key copied.'); }, function () {}); } }, 'Copy key'))),
+      h('div', { class: 'acct-field' }, h('label', { for: 'f-otp-setup' }, '6-digit code'), input, err),
+      h('div', { class: 'row' }, go, opts.onCancel ? h('button', { type: 'button', class: 'link', onclick: opts.onCancel }, 'Cancel') : null));
+      input.addEventListener('input', function () {
+        const digits = input.value.replace(/[^0-9]/g, '').slice(0, 6);
+        input.value = digits.length > 3 ? digits.slice(0, 3) + ' ' + digits.slice(3) : digits;
+      });
+      box.replaceChildren(form);
+    }
+    begin();
+    return box;
+  }
+
+  /** Required after signing up: protect the new account with the authenticator app. */
+  function viewSecure() {
+    const user = BT.currentUser();
+    return h('div', { class: 'narrow' },
+      h('span', { class: 'brand step-brand' }, 'PassbookHub'),
+      h('header', { class: 'intro' },
+        h('h1', null, 'Secure your account'),
+        h('p', { class: 'muted' }, 'One last step, ' + user.name.split(' ')[0] + '. Turn on two-step verification so only you can sign in, even if someone learns your password. You’ll enter a code from your authenticator app when you sign in.')),
+      totpSetup({
+        onDone: function () { render(); },
+        onSkip: function () { state.mfaSkipped = true; render(); }
+      }));
+  }
+
+  /** Settings: the two-step verification switch. */
+  function securitySection() {
+    const sec = h('section', { class: 'section' });
+    function draw() {
+      const on = BT.mfaOn();
+      sec.replaceChildren(
+        h('h2', null, 'Two-step verification'),
+        h('p', { class: 'small muted', style: 'margin:0.25rem 0 0.75rem' }, 'Ask for a 6-digit code from an authenticator app every time you sign in.'),
+        h('div', { class: 'otp-status' + (on ? ' on' : '') },
+          h('span', { class: 'otp-dot', 'aria-hidden': 'true' }),
+          h('strong', null, on ? 'On' : 'Off'),
+          h('span', { class: 'grow' }),
+          on
+            ? h('button', { type: 'button', class: 'btn small', onclick: async function () {
+                const ok = await ask({ title: 'Turn off two-step verification?', body: 'You’ll only need your password to sign in. Your account will be less protected.', yes: 'Turn off', no: 'Keep it on' });
+                if (!ok) return;
+                try { await BT.disableTotp(); toast('Two-step verification is off.'); draw(); }
+                catch (error) { toast(error.message); }
+              } }, 'Turn off')
+            : h('button', { type: 'button', class: 'btn primary small', onclick: function () {
+                sec.replaceChildren(h('h2', null, 'Turn on two-step verification'), totpSetup({ onDone: draw, onCancel: draw }));
+              } }, 'Turn on')));
+    }
+    draw();
+    return sec;
+  }
+
   /* ---------- Sign in and sign up ---------- */
 
   function viewAuth(view) {
+    const pendingMfa = BT.takePendingMfa();
+    if (pendingMfa) setTimeout(function () { otpDialog(pendingMfa); }, 0);
     const notice = state.notice;
     state.notice = null;
     const redirectError = BT.takeRedirectError();
@@ -433,6 +619,7 @@
             await BT.socialSignIn(which);
             /* On success the session listener loads the account and redraws. */
           } catch (error) {
+            if (error instanceof BT.MfaRequired) { otpDialog(error); return; }
             status.textContent = error instanceof BT.UserError ? error.message : 'Something went wrong. Please try again.';
             status.hidden = false;
           } finally {
@@ -464,6 +651,7 @@
           try {
             await BT.signIn(login, password);
           } catch (error) {
+            if (error instanceof BT.MfaRequired) { otpDialog(error); return; }
             if (error instanceof BT.FieldError && error.fields.password) form.elements.password.value = '';
             throw error;
           }
@@ -1055,6 +1243,7 @@
             h('dt', null, 'Email'), h('dd', null, user.email),
             user.provider !== 'password' ? [h('dt', null, 'Sign-in'), h('dd', null, BT.socialLabel(user.provider))] : null,
             h('dt', null, 'Birthday'), h('dd', null, BT.longDate(user.birthday)))),
+        securitySection(),
         h('section', { class: 'section' }, h('h2', { style: 'margin-bottom:0.75rem' }, 'Delete account'), dangerBox)), profilePanel));
   }
 
