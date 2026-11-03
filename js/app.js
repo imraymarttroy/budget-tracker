@@ -63,7 +63,8 @@
     addPerson: '<circle cx="8" cy="7" r="3"/><path d="M2.5 16.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5M15.5 5.5v5M13 8h5"/>',
     profile: '<circle cx="10" cy="7" r="3.25"/><path d="M3.5 17c.8-3 3.4-4.75 6.5-4.75s5.7 1.75 6.5 4.75"/>',
     pending: '<circle cx="10" cy="10" r="7.5"/><path d="M10 6v4l2.5 2"/>',
-    minimize: '<path d="M5 10h10"/>'
+    minimize: '<path d="M5 10h10"/>',
+    pin: '<path d="M12.5 2.5 17.5 7.5 15 8.5 11.5 12 11 16 4 9l4-.5L11.5 5z"/><path d="m7.5 12.5-4 4"/>'
   };
 
   /* Icon markup comes only from the constant table above. */
@@ -229,11 +230,13 @@
     if (!user.profileDone) return 'setup';
     if (/^u\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'person';
     if (/^chat\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'chat';
-    return ['profile', 'circle', 'messages', 'notifications', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
+    if (wanted === 'messages') return 'chat';
+    if (wanted === 'notifications') return 'alerts';
+    return ['profile', 'circle', 'alerts', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
   }
 
   /* Views that show the sidebar. Only the signed-in owner of the account ever sees it. */
-  const SHELL_VIEWS = ['dashboard', 'profile', 'person', 'circle', 'messages', 'chat', 'notifications', 'settings'];
+  const SHELL_VIEWS = ['dashboard', 'profile', 'person', 'circle', 'alerts', 'settings'];
 
   const VIEWS = {
     signin: { title: 'Sign in', render: viewAuth },
@@ -245,8 +248,7 @@
     profile: { title: 'Profile', render: viewTimeline },
     person: { title: 'Profile', render: viewPerson },
     circle: { title: 'Circle', render: viewCircle },
-    messages: { title: 'Messages', render: viewMessages },
-    notifications: { title: 'Notifications', render: viewNotifications },
+    alerts: { title: 'Alerts', render: viewNotifications },
     settings: { title: 'Settings', render: viewSettings },
     offline: { title: 'Could not load', render: viewOffline },
     orphan: { title: 'Finish signing up', render: viewOrphan },
@@ -256,11 +258,12 @@
   function render() {
     let view = resolveView();
     if (view === 'chat') {
-      /* Old #chat/username links: show Messages and open that conversation in the floating chat. */
-      const username = location.hash.slice(6);
-      history.replaceState(null, '', '#messages');
-      view = 'messages';
-      setTimeout(function () { dock.open(username); }, 0);
+      /* Messages live only in the floating chat now: #messages opens the picker, #chat/username opens that person. */
+      const username = location.hash.indexOf('#chat/') === 0 ? location.hash.slice(6) : null;
+      const back = SHELL_VIEWS.indexOf(state.view) !== -1 ? state.view : 'dashboard';
+      history.replaceState(null, '', back === 'person' ? location.pathname + '#dashboard' : '#' + back);
+      view = back === 'person' ? 'dashboard' : back;
+      setTimeout(function () { if (username) dock.open(username); else dock.openPicker(); }, 0);
     }
     if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); SOC.stopWatchingChats(); }
     if (state.cleanup) { state.cleanup(); state.cleanup = null; }
@@ -1065,16 +1068,19 @@
 
   function shell(view, content) {
     const user = BT.currentUser();
-    const current = view === 'chat' ? 'messages' : view;
-    function item(name, href, label) {
-      const link = h('a', { class: 'nav-item', href: href, 'aria-current': current === name ? 'page' : null }, navIcon(name), h('span', null, label));
-      if (name === 'notifications' || name === 'messages') {
-        const badge = h('span', { class: 'nav-badge', hidden: true, 'data-kind': name });
-        badges.push(badge);
-        link.appendChild(badge);
-      }
-      return h('li', null, link);
+    const current = view;
+    function item(name, href, label, extra) {
+      return h('li', null, h('a', { class: 'nav-item', href: href, 'aria-current': current === name ? 'page' : null }, navIcon(name), h('span', null, label), extra || null));
     }
+    function topLink(name, href, label) {
+      const badge = name === 'notifications' ? h('span', { class: 'nav-badge', hidden: true, 'data-kind': 'notifications' }) : null;
+      if (badge) badges.push(badge);
+      const page = name === 'notifications' ? 'alerts' : name;
+      return h('a', { class: 'top-btn', href: href, title: label, 'aria-label': label, 'aria-current': current === page ? 'page' : null }, navIcon(name), h('span', { class: 'top-label' }, label), badge);
+    }
+    const top = h('div', { class: 'top-actions' },
+      topLink('notifications', '#alerts', 'Alerts'),
+      topLink('settings', '#settings', 'Settings'));
     const side = h('aside', { class: 'sidebar' },
       h('a', { class: 'brand sidebar-brand', href: '#dashboard' }, 'PassbookHub'),
       h('a', { class: 'sidebar-me', href: '#profile' },
@@ -1082,12 +1088,10 @@
         h('span', null, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username))),
       h('nav', { 'aria-label': 'Main' },
         h('ul', { class: 'nav-list' },
-          item('dashboard', '#dashboard', 'Dashboard'),
+          item('dashboard', '#dashboard', 'Dashboard',
+            h('span', { class: 'nav-pin', title: 'Private: only you can see your dashboard' }, icon('pin'), h('span', { class: 'vh' }, '(private)'))),
           item('profile', '#profile', 'Profile'),
           item('circle', '#circle', 'Circle'),
-          item('messages', '#messages', 'Messages'),
-          item('notifications', '#notifications', 'Notifications'),
-          item('settings', '#settings', 'Settings'),
           h('li', null, h('button', {
             type: 'button',
             class: 'nav-item',
@@ -1102,7 +1106,7 @@
             }
           }, navIcon('signout'), h('span', null, 'Sign out'))))));
     drawBadges();
-    return h('div', { class: 'app-shell' }, side, h('div', { class: 'app-main' }, content));
+    return h('div', { class: 'app-shell' }, side, h('div', { class: 'app-main' }, top, content));
   }
 
   /* ---------- Profiles and posts ---------- */
@@ -1590,46 +1594,6 @@
   }
 
   /* ---------- Messages ---------- */
-
-  function viewMessages() {
-    const list = h('div', null, h('p', { class: 'muted small' }, 'Loading messages…'));
-
-    function draw(chats) {
-      if (!list.isConnected && list.parentNode) return;
-      if (!SOC.chatsReady()) return;
-      if (!chats.length) {
-        list.replaceChildren(h('div', { class: 'empty' },
-          h('p', null, 'No messages yet.'),
-          h('p', { class: 'small', style: 'margin-top:0.5rem' }, 'Open your ', h('a', { href: '#circle' }, 'circle'), ' and tap Message to start a conversation.')));
-        return;
-      }
-      const ul = h('ul', { class: 'people chats' });
-      chats.forEach(function (chat) {
-        const li = h('li', { class: 'person' }, h('p', { class: 'muted small', style: 'padding:0.5rem' }, 'Loading…'));
-        ul.appendChild(li);
-        SOC.getProfile(SOC.otherIn(chat)).then(function (person) {
-          if (!person) { li.remove(); return; }
-          const unread = SOC.isUnread(chat);
-          li.className = 'person' + (unread ? ' unread' : '');
-          li.replaceChildren(h('a', { class: 'person-link', href: '#chat/' + person.username },
-            avatar(person, person.avatar, 2.75),
-            h('span', { class: 'person-names chat-names' },
-              h('span', { class: 'chat-top' }, h('strong', null, person.name), h('span', { class: 'small muted num' }, timeAgo(chat.lastAt))),
-              h('span', { class: 'small chat-preview' + (unread ? '' : ' muted') }, chat.lastFrom === BT.currentUser().id ? 'You: ' : null, h('span', { class: 'chat-last' }, chat.lastText))),
-            unread ? h('span', { class: 'unread-dot' }, h('span', { class: 'vh' }, 'Unread')) : null));
-        }).catch(function () { li.remove(); });
-      });
-      list.replaceChildren(ul);
-    }
-
-    state.drawChats = draw;
-    draw(SOC.chats());
-    return h('div', { class: 'wide' },
-      h('div', { class: 'list-head', style: 'margin-bottom:1.25rem' },
-        h('h1', null, 'Messages'),
-        h('a', { class: 'btn', href: '#circle' }, 'New message')),
-      list);
-  }
 
   function clockTime(ms) {
     return new Date(ms).toLocaleTimeString(I18N.locale, { hour: 'numeric', minute: '2-digit' });
@@ -2255,8 +2219,16 @@
     const MAX_BUBBLES = 5;
     const pop = h('section', { class: 'chat-pop', 'aria-label': 'Chat', hidden: true });
     const bubbles = h('div', { class: 'chat-bubbles' });
-    const el = h('div', { class: 'chat-dock', hidden: true }, pop, bubbles);
+    const launcherBadge = h('span', { class: 'nav-badge chat-launcher-badge', hidden: true, 'data-kind': 'messages' });
+    badges.push(launcherBadge);
+    const launcher = h('button', {
+      type: 'button', class: 'chat-launcher', 'aria-label': 'Messages: start or open a chat', title: 'Messages', 'aria-expanded': 'false',
+      onclick: function () { if (picking) closePicker(); else openPicker(); }
+    }, navIcon('messages'), launcherBadge);
+    const el = h('div', { class: 'chat-dock', hidden: true }, pop, h('div', { class: 'chat-side' }, bubbles, launcher));
     document.body.appendChild(el);
+    let picking = false;     /* the "who do you want to chat with?" search is open */
+    let circleCache = null;
 
     let items = [];          /* [{ username, person }] — newest first */
     let active = null;       /* username shown in the open window, or null when everything is minimized */
@@ -2316,8 +2288,87 @@
       }).catch(function () {});
     }
 
+    /* ---------- "Who do you want to chat with?" ---------- */
+
+    function picker() {
+      const input = h('input', { type: 'search', class: 'picker-search', placeholder: 'Search your circle', 'aria-label': 'Search your circle', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false' });
+      const list = h('div', { class: 'picker-list', 'aria-live': 'polite' }, h('p', { class: 'muted small chat-pop-note' }, 'Loading your circle…'));
+      let people = circleCache;
+
+      function drawList() {
+        if (!people) return;
+        const q = input.value.trim().toLowerCase().replace(/^@/, '');
+        if (!people.length) {
+          list.replaceChildren(h('div', { class: 'chat-pop-note small muted' },
+            h('p', null, 'Your circle is empty.'),
+            h('p', null, 'Add people from ', h('a', { href: '#circle', onclick: function () { closePicker(); } }, 'Circle'), ' to message them.')));
+          return;
+        }
+        const ranked = people.map(function (p) { return { p: p, chat: SOC.chatWith(p.id) }; })
+          .filter(function (r) { return !q || r.p.name.toLowerCase().indexOf(q) !== -1 || r.p.username.toLowerCase().indexOf(q) !== -1; })
+          .sort(function (a, b) { return ((b.chat && b.chat.lastAt) || 0) - ((a.chat && a.chat.lastAt) || 0) || a.p.name.localeCompare(b.p.name); });
+        if (!ranked.length) { list.replaceChildren(h('p', { class: 'muted small chat-pop-note' }, 'No one in your circle matches \u201c' + input.value.trim() + '\u201d.')); return; }
+        const me = BT.currentUser();
+        list.replaceChildren(h('ul', { class: 'picker-people' }, ranked.map(function (r) {
+          const unread = SOC.isUnread(r.chat);
+          return h('li', null, h('button', {
+            type: 'button', class: 'picker-person' + (unread ? ' unread' : ''),
+            onclick: function () { picking = false; launcher.setAttribute('aria-expanded', 'false'); open(r.p.username); }
+          },
+          avatar(r.p, r.p.avatar, 2.25),
+          h('span', { class: 'picker-names' },
+            h('strong', null, r.p.name),
+            h('span', { class: 'small' + (unread ? '' : ' muted') }, r.chat && r.chat.lastText
+              ? [(r.chat.lastFrom === me.id ? 'You: ' : ''), r.chat.lastText]
+              : '@' + r.p.username)),
+          unread ? h('span', { class: 'unread-dot' }, h('span', { class: 'vh' }, 'Unread')) : null));
+        })));
+      }
+
+      input.addEventListener('input', drawList);
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') { event.preventDefault(); closePicker(); launcher.focus(); }
+        if (event.key === 'Enter') { event.preventDefault(); const first = list.querySelector('.picker-person'); if (first) first.click(); }
+      });
+      SOC.circleMembers().then(function (found) { circleCache = people = found; if (list.isConnected || picking) drawList(); })
+        .catch(function (error) { if (!people) list.replaceChildren(h('p', { class: 'muted small chat-pop-note' }, error.message || 'We could not load your circle.')); });
+      drawList();
+      setTimeout(function () { if (input.isConnected) input.focus({ preventScroll: true }); }, 0);
+
+      const node = h('div', { class: 'chat-pop-body picker' },
+        h('header', { class: 'chat-head' },
+          h('strong', { class: 'picker-title' }, 'New message'),
+          h('div', { class: 'chat-head-tools' },
+            h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', title: 'Close', onclick: function () { closePicker(); } }, icon('close')))),
+        h('div', { class: 'picker-search-wrap' }, icon('search'), input),
+        list);
+      node.refresh = drawList;
+      return node;
+    }
+
+    function openPicker() {
+      if (!shown) return;
+      picking = true;
+      active = null;
+      save();
+      draw();
+    }
+    function closePicker() {
+      picking = false;
+      draw();
+    }
+
     function mountPanel() {
       if (panel) { panel.destroy(); panel = null; }
+      launcher.setAttribute('aria-expanded', picking ? 'true' : 'false');
+      el.classList.toggle('picking', picking);
+      if (picking && shown) {
+        const node = picker();
+        panel = { el: node, refresh: node.refresh, focus: function () {}, destroy: function () {} };
+        pop.replaceChildren(node);
+        pop.hidden = false;
+        return;
+      }
       if (!active || !shown) { pop.hidden = true; pop.replaceChildren(); return; }
       const item = find(active);
       panel = chatPanel(item.username, {
@@ -2331,7 +2382,7 @@
     }
 
     function draw() {
-      el.hidden = !shown || !items.length;
+      el.hidden = !shown;
       drawBubbles();
       mountPanel();
     }
@@ -2344,7 +2395,8 @@
         items.unshift(item);
         if (items.length > MAX_BUBBLES) items = items.slice(0, MAX_BUBBLES);
       }
-      if (active === item.username && panel) { panel.focus(); return; }
+      if (active === item.username && panel && !picking) { panel.focus(); return; }
+      picking = false;
       active = item.username;
       save();
       draw();
@@ -2353,6 +2405,7 @@
     /** Shrinks the window into a circle at the bottom right. */
     function minimize() {
       active = null;
+      picking = false;
       save();
       draw();
     }
@@ -2371,7 +2424,7 @@
       if (id !== owner) {
         if (panel) { panel.destroy(); panel = null; }
         owner = id;
-        items = []; active = null; knownAt = null;
+        items = []; active = null; knownAt = null; picking = false; circleCache = null;
         if (owner) restore();
         if (owner && SOC.chatsReady()) {
           knownAt = {};
@@ -2406,7 +2459,6 @@
               items.unshift(item);
               if (items.length > MAX_BUBBLES) items = items.slice(0, MAX_BUBBLES);
               save();
-              el.hidden = !shown;
             }
             item.person = item.person || person;
             drawBubbles();
@@ -2420,7 +2472,7 @@
       if (panel) panel.refresh();
     }
 
-    return { open: open, minimize: minimize, close: close, sync: sync, onChats: onChats };
+    return { open: open, openPicker: openPicker, minimize: minimize, close: close, sync: sync, onChats: onChats };
   })();
 
   /* Any "Message" link opens the floating chat instead of leaving the page. */
@@ -2442,7 +2494,7 @@
     function draw(notes) {
       if (!list.isConnected && list.parentNode) return;
       if (!notes.length) {
-        list.replaceChildren(h('p', { class: 'empty' }, 'No notifications yet. When someone adds you to their circle, you will see it here.'));
+        list.replaceChildren(h('p', { class: 'empty' }, 'No alerts yet. When someone adds you to their circle, you will see it here.'));
         return;
       }
       const ul = h('ul', { class: 'notes' });
@@ -2488,7 +2540,7 @@
     draw(SOC.notifications());
     setTimeout(function () { SOC.markAllRead().catch(function () {}); }, 1500);
     return h('div', { class: 'wide' },
-      h('h1', { style: 'margin-bottom:1.25rem' }, 'Notifications'),
+      h('h1', { style: 'margin-bottom:1.25rem' }, 'Alerts'),
       list,
       (function () { state.drawNotes = draw; return null; })());
   }
@@ -2778,7 +2830,9 @@
         avatar(user, user.avatar, 3.25),
         h('div', null,
           h('h1', null, user.name),
-          user.bio ? h('p', { class: 'small muted' }, user.bio) : null)),
+          user.bio ? h('p', { class: 'small muted' }, user.bio) : null),
+        h('span', { class: 'private-pin', title: 'Your dashboard is private. People in your circle can\u2019t see your budget or entries.' },
+          icon('pin'), h('span', null, 'Private \u00b7 only you can see this'))),
       h('section', { 'aria-label': 'Monthly summary' },
         h('div', { class: 'month-nav' },
           monthHeading,
@@ -2801,12 +2855,11 @@
 
   SOC.onChats(function (list) {
     drawBadges();
-    if (state.view === 'messages' && state.drawChats) state.drawChats(list);
     dock.onChats(list);
   });
   SOC.onNotifications(function (notes) {
     drawBadges();
-    if (state.view === 'notifications' && state.drawNotes) {
+    if (state.view === 'alerts' && state.drawNotes) {
       state.drawNotes(notes);
       SOC.markAllRead().catch(function () {});
     }
