@@ -246,6 +246,99 @@ window.BT = (function () {
     return 'https://flagcdn.com/' + (CURRENCY_FLAG[code] || 'un') + '.svg';
   }
 
+  /** A country's flag (ISO 3166 two-letter code, e.g. "US"). */
+  function countryFlagUrl(country) {
+    return 'https://flagcdn.com/' + (/^[A-Za-z]{2}$/.test(country || '') ? country.toLowerCase() : 'un') + '.svg';
+  }
+
+  /* Every country and territory with an ISO 3166 code; names come from the browser in its language. */
+  const COUNTRY_CODES = 'AD AE AF AG AI AL AM AO AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GT GU GW GY HK HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW'.split(' ');
+  function countryName(code) {
+    try { return new Intl.DisplayNames(undefined, { type: 'region' }).of(code) || code; } catch (e) { return code; }
+  }
+  function countries() {
+    return COUNTRY_CODES.map(function (c) { return { code: c, name: countryName(c) }; })
+      .sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+
+  /** Checks and tidies an address: { country, line1, city, province, postal }. */
+  function cleanAddress(a) {
+    const out = {
+      country: String(a.country || '').toUpperCase(),
+      line1: String(a.line1 || '').trim().replace(/\s+/g, ' ').slice(0, 120),
+      city: String(a.city || '').trim().replace(/\s+/g, ' ').slice(0, 60),
+      province: String(a.province || '').trim().replace(/\s+/g, ' ').slice(0, 60),
+      postal: String(a.postal || '').trim().slice(0, 12)
+    };
+    if (out.country && COUNTRY_CODES.indexOf(out.country) === -1) throw new FieldError({ country: 'Choose a country from the list.' });
+    if (!out.country && (out.line1 || out.city || out.province || out.postal)) throw new FieldError({ country: 'Choose your country.' });
+    return out.country ? out : null;
+  }
+
+  /** Saves edited account details: username, birthday and address. */
+  async function updateAccountDetails(input) {
+    const user = window.FB.auth.currentUser;
+    const profile = cache.profile;
+    const errors = {};
+    const username = String(input.username || '').trim().replace(/^@/, '');
+    if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) errors.username = 'Use 3 to 20 letters, numbers or underscores.';
+    const age = ageOn(input.birthday, today());
+    if (!input.birthday || age === null || input.birthday > today() || age > 130) errors.birthday = 'Enter a valid birthday.';
+    else if (age < MIN_AGE) errors.birthday = 'You must be ' + MIN_AGE + ' or older to use PassbookHub.';
+    if (Object.keys(errors).length) throw new FieldError(errors);
+    const address = cleanAddress(input.address || {});
+
+    const changes = { birthday: input.birthday, address: address };
+    const renamed = username.toLowerCase() !== profile.username.toLowerCase() || username !== profile.username;
+    if (renamed) {
+      const sameName = username.toLowerCase() === profile.username.toLowerCase();
+      if (!sameName) {
+        const taken = await F().getDoc(nameDoc(username)).catch(function (e) { throw friendly(e); });
+        if (taken.exists() && taken.data().uid !== user.uid) throw new FieldError({ username: 'That username is taken.' });
+      }
+      /* Claim the new name and change the account in one step; the old name is released. */
+      const batch = F().writeBatch(window.FB.db);
+      const email = accountEmail(user);
+      const nameData = hasPassword(user) && email ? { uid: user.uid, email: email.toLowerCase() } : { uid: user.uid };
+      if (!sameName) batch.set(nameDoc(username), { uid: user.uid });
+      batch.update(userDoc(user.uid), Object.assign({ username: username }, changes));
+      if (!sameName) batch.delete(nameDoc(profile.username));
+      try { await batch.commit(); } catch (error) {
+        if (error.code === 'permission-denied') throw new FieldError({ username: 'That username is taken.' });
+        throw friendly(error);
+      }
+      if (!sameName && nameData.email) await F().setDoc(nameDoc(username), nameData).catch(function () {});
+      Object.assign(cache.profile, { username: username }, changes);
+    } else {
+      try { await F().updateDoc(userDoc(user.uid), changes); } catch (error) { throw friendly(error); }
+      Object.assign(cache.profile, changes);
+    }
+    return currentUser();
+  }
+
+  /** Email accounts only: sends a link to the new address; the email changes once it is opened. */
+  async function changeEmail(newEmail, password) {
+    const user = window.FB.auth.currentUser;
+    const email = String(newEmail || '').trim().toLowerCase();
+    if (!validEmail(email)) throw new FieldError({ newEmail: 'Enter a valid email address.' });
+    if (!hasPassword(user)) throw new UserError('Your email comes from your Google account. Change it there.');
+    if (email === (user.email || '').toLowerCase()) throw new FieldError({ newEmail: 'That is already your email.' });
+    if (!password) throw new FieldError({ emailPassword: 'Enter your password.' });
+    try {
+      await A().reauthenticateWithCredential(user, A().EmailAuthProvider.credential(user.email, password));
+    } catch (error) {
+      if (error.code === 'auth/multi-factor-auth-required') throw new UserError('Turn off two-step verification first, or sign out and in again, then try once more.');
+      if (['auth/invalid-credential', 'auth/wrong-password', 'auth/invalid-login-credentials'].indexOf(error.code) !== -1) throw new FieldError({ emailPassword: 'That password is not correct.' });
+      throw friendly(error);
+    }
+    try {
+      await A().verifyBeforeUpdateEmail(user, email, actionSettings());
+    } catch (error) {
+      if (error.code === 'auth/email-already-in-use') throw new FieldError({ newEmail: 'That email already has an account.' });
+      throw friendly(error);
+    }
+  }
+
   /** "PHP · Philippine peso (₱)", in the browser's language where it can. */
   function currencyLabel(code) {
     let name = code, symbol = '';
@@ -790,6 +883,8 @@ window.BT = (function () {
   return {
     BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES, currencyLabel: currencyLabel, flagUrl: flagUrl,
     RESEND_COOLDOWN_MS: RESEND_COOLDOWN_MS, MIN_AGE: MIN_AGE,
+    countryFlagUrl: countryFlagUrl, countries: countries, countryName: countryName,
+    updateAccountDetails: updateAccountDetails, changeEmail: changeEmail,
     UserError: UserError, FieldError: FieldError, MfaRequired: MfaRequired, takePendingMfa: takePendingMfa,
     resolveMfa: resolveMfa, mfaOn: mfaOn, reauthenticate: reauthenticate, usesPassword: usesPassword, startTotp: startTotp, finishTotp: finishTotp, disableTotp: disableTotp,
     today: today, parseDate: parseDate, ageOn: ageOn, monthOf: monthOf, addMonths: addMonths,

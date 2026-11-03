@@ -1244,6 +1244,14 @@
       mfaChip.replaceChildren(h('span', { class: 'otp-dot', 'aria-hidden': 'true' }), 'Two-step ' + (on ? 'on' : 'off'));
     }
     drawChip();
+    /* Your country's flag, from your address. */
+    const countryChip = h('span', { class: 'set-chip' });
+    function drawCountry() {
+      const a = BT.currentUser().address;
+      countryChip.hidden = !(a && a.country);
+      if (a && a.country) countryChip.replaceChildren(h('img', { class: 'flag', src: BT.countryFlagUrl(a.country), alt: '', width: 24, height: 18 }), BT.countryName(a.country));
+    }
+    drawCountry();
     const hero = h('section', { class: 'pf-card pf-hero set-hero' },
       h('div', { class: 'pf-hero-glow', 'aria-hidden': 'true' }, h('span'), h('span')),
       h('div', { class: 'pf-hero-copy' },
@@ -1252,6 +1260,7 @@
         h('p', { class: 'pf-handle' }, user.name + ' · @' + user.username),
         h('div', { class: 'set-chips' },
           mfaChip,
+          countryChip,
           h('span', { class: 'set-chip' }, flagImage(user.currency), user.currency),
           h('span', { class: 'set-chip' }, user.provider !== 'password' ? BT.socialLabel(user.provider) + ' sign-in' : 'Email sign-in'))),
       h('div', { class: 'pf-hero-photo' }, avatar(user, user.avatar, 6.5)));
@@ -1271,12 +1280,7 @@
       h('div', { class: 'pf-main' },
         card('Profile', 'camera', form)),
       h('div', { class: 'pf-side' },
-        card('Account', null,
-          h('dl', { class: 'account-details' },
-            h('dt', null, 'Username'), h('dd', null, '@' + user.username),
-            h('dt', null, 'Email'), h('dd', null, user.email),
-            user.provider !== 'password' ? [h('dt', null, 'Sign-in'), h('dd', null, BT.socialLabel(user.provider))] : null,
-            h('dt', null, 'Birthday'), h('dd', null, BT.longDate(user.birthday)))),
+        accountCard(function () { drawCountry(); }),
         card('Security', 'lock', security, 'set-security'),
         card('Delete account', null, h('div', null,
           h('p', { class: 'small muted', style: 'margin:0 0 0.75rem' }, 'Permanently remove your profile, budget, accounts and messages.'),
@@ -1308,6 +1312,119 @@
       h('div', { class: 'dash-tabs set-tabs', role: 'tablist', 'aria-label': 'Settings' }, tabButtons),
       profilePanel,
       circlePanel);
+  }
+
+  /** Settings: account details with an Edit mode (username, email, birthday, address). */
+  function accountCard(onChange) {
+    const body = h('div');
+    const editBtn = h('button', { type: 'button', class: 'btn small', onclick: function () { edit(); } }, icon('edit'), h('span', null, 'Edit'));
+    const card = h('section', { class: 'pf-card pf-list-card set-card' },
+      h('div', { class: 'pf-card-head' }, h('h2', null, 'Account'), editBtn), body);
+
+    function addressLines(a) {
+      if (!a || !a.country) return h('span', { class: 'muted' }, 'Not added');
+      const lines = [a.line1, [a.city, a.province, a.postal].filter(Boolean).join(', ')].filter(Boolean);
+      return h('span', { class: 'addr' },
+        lines.map(function (l) { return h('span', { class: 'addr-line' }, l); }),
+        h('span', { class: 'addr-country' }, h('img', { class: 'flag', src: BT.countryFlagUrl(a.country), alt: '', width: 20, height: 15 }), BT.countryName(a.country)));
+    }
+
+    function view() {
+      const user = BT.currentUser();
+      editBtn.hidden = false;
+      body.replaceChildren(h('dl', { class: 'account-details' },
+        h('dt', null, 'Username'), h('dd', null, '@' + user.username),
+        h('dt', null, 'Email'), h('dd', null, user.email),
+        user.provider !== 'password' ? [h('dt', null, 'Sign-in'), h('dd', null, BT.socialLabel(user.provider))] : null,
+        h('dt', null, 'Birthday'), h('dd', null, BT.longDate(user.birthday)),
+        h('dt', null, 'Address'), h('dd', null, addressLines(user.address))));
+    }
+
+    function edit() {
+      const user = BT.currentUser();
+      const a = user.address || {};
+      editBtn.hidden = true;
+      const country = h('select', { id: 'f-country', name: 'country' },
+        h('option', { value: '' }, 'Choose a country'),
+        BT.countries().map(function (c) { return h('option', { value: c.code }, c.name); }));
+      country.value = a.country || '';
+      const flag = h('img', { class: 'flag country-flag', alt: '', width: 24, height: 18 });
+      function drawFlag() { flag.hidden = !country.value; if (country.value) flag.src = BT.countryFlagUrl(country.value); }
+      country.addEventListener('change', drawFlag);
+      drawFlag();
+      function input(name, label, value, attrs) {
+        return field({ name: name, label: label, attrs: Object.assign({ value: value || '' }, attrs || {}) });
+      }
+      const form = h('form', {
+        class: 'stack', novalidate: true,
+        onsubmit: function (event) {
+          event.preventDefault();
+          const el = form.elements;
+          busy(form, 'Saving…', async function () {
+            const before = BT.currentUser().username;
+            await BT.updateAccountDetails({
+              username: el.username.value, birthday: el.birthday.value,
+              address: { country: country.value, line1: el.line1.value, city: el.city.value, province: el.province.value, postal: el.postal.value }
+            });
+            if (BT.currentUser().username !== before) await SOC.syncProfile(BT.currentUser()).catch(function (e) { console.error(e); });
+            toast('Account details saved.');
+            view();
+            onChange();
+          });
+        }
+      },
+      input('username', 'Username', user.username, { maxlength: 20, autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false' }),
+      field({ name: 'birthday', label: 'Birthday', type: 'date', attrs: { value: user.birthday, max: BT.today() } }),
+      h('fieldset', { class: 'pf-fieldset' }, h('legend', null, 'Address'),
+        field({ name: 'country', label: 'Country', control: country, after: flag, wrapClass: 'country-field' }),
+        input('line1', 'Street address', a.line1, { maxlength: 120, autocomplete: 'street-address', placeholder: 'House no., street, barangay' }),
+        h('div', { class: 'acct-row' },
+          h('div', { class: 'grow' }, input('city', 'City', a.city, { maxlength: 60, autocomplete: 'address-level2' })),
+          h('div', { class: 'grow' }, input('province', 'Province / State', a.province, { maxlength: 60, autocomplete: 'address-level1' }))),
+        h('div', { style: 'max-width:10rem' }, input('postal', 'Postal code', a.postal, { maxlength: 12, autocomplete: 'postal-code' }))),
+      h('p', { class: 'small muted', style: 'margin:0' }, 'Your address is private. Only you can see it.'),
+      formError(),
+      h('div', { class: 'row' },
+        h('button', { type: 'submit', class: 'btn primary' }, 'Save'),
+        h('button', { type: 'button', class: 'link', onclick: function () { view(); } }, 'Cancel')));
+
+      const parts = [form];
+      if (user.provider === 'password') parts.push(emailChanger());
+      body.replaceChildren.apply(body, parts);
+      form.elements.username.focus();
+    }
+
+    /* Email accounts: change the email with a confirmation link sent to the new address. */
+    function emailChanger() {
+      const box = h('div', { class: 'email-change' });
+      function closed() {
+        box.replaceChildren(h('button', { type: 'button', class: 'link small', onclick: open }, 'Change email'));
+      }
+      function open() {
+        const form = h('form', {
+          class: 'stack', novalidate: true,
+          onsubmit: function (event) {
+            event.preventDefault();
+            busy(form, 'Sending…', async function () {
+              await BT.changeEmail(form.elements.newEmail.value, form.elements.emailPassword.value);
+              box.replaceChildren(h('p', { class: 'notice small' }, 'We sent a link to ' + form.elements.newEmail.value.trim() + '. Open it to finish changing your email. Until then, keep using your current one.'));
+            });
+          }
+        },
+        h('h3', { class: 'set-sub' }, 'Change email'),
+        field({ name: 'newEmail', label: 'New email', type: 'email', attrs: { autocomplete: 'email' } }),
+        field({ name: 'emailPassword', label: 'Current password', type: 'password', attrs: { autocomplete: 'current-password' } }),
+        formError(),
+        h('div', { class: 'row' }, h('button', { type: 'submit', class: 'btn small' }, 'Send link'), h('button', { type: 'button', class: 'link small', onclick: closed }, 'Cancel')));
+        box.replaceChildren(form);
+        form.elements.newEmail.focus();
+      }
+      closed();
+      return box;
+    }
+
+    view();
+    return card;
   }
 
   /** Circle settings: people you blocked, with Unblock. */

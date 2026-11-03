@@ -27,13 +27,24 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, delete: if signedInAs(uid);
       allow create, update: if signedInAs(uid)
-        && request.resource.data.keys().hasOnly(['name', 'birthday', 'username', 'profileDone', 'avatar', 'bio', 'currency', 'createdAt', 'needsMfa'])
+        && request.resource.data.keys().hasOnly(['name', 'birthday', 'username', 'profileDone', 'avatar', 'bio', 'currency', 'createdAt', 'needsMfa', 'address'])
         && (!('needsMfa' in request.resource.data) || request.resource.data.needsMfa is bool)
+        && (!('address' in request.resource.data) || request.resource.data.address == null
+            || (request.resource.data.address is map
+              && request.resource.data.address.keys().hasOnly(['country', 'line1', 'city', 'province', 'postal'])
+              && request.resource.data.address.country is string && request.resource.data.address.country.matches('^[A-Z]{2}$')
+              && request.resource.data.address.line1 is string && request.resource.data.address.line1.size() <= 120
+              && request.resource.data.address.city is string && request.resource.data.address.city.size() <= 60
+              && request.resource.data.address.province is string && request.resource.data.address.province.size() <= 60
+              && request.resource.data.address.postal is string && request.resource.data.address.postal.size() <= 12))
         && request.resource.data.name is string && request.resource.data.name.size() <= 60
         && request.resource.data.bio is string && request.resource.data.bio.size() <= 160
         && (request.resource.data.avatar == null
             || (request.resource.data.avatar is string && request.resource.data.avatar.size() < 300000))
-        && (request.method == 'create' || request.resource.data.username == resource.data.username);
+        // The username only changes together with claiming usernames/{new name} in the same write.
+        && (request.method == 'create' || request.resource.data.username == resource.data.username
+            || (request.resource.data.username is string && request.resource.data.username.matches('^[A-Za-z0-9_]{3,20}$')
+              && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.username.lower())).data.uid == uid));
 
       // users/{uid}/tx/{id}: income and spending entries. The owner's trusted person may read
       // them, and also add, edit and delete them when the owner chose "Can edit".
