@@ -285,6 +285,28 @@ window.SOC = (function () {
     await run(function () { return batch.commit(); });
   }
 
+  /** Keeps the conversation preview right when you change or remove the newest message. */
+  async function refreshPreview(id, createdAt, previewText) {
+    const chat = chatList.find(function (c) { return c.id === id; });
+    if (!chat || chat.lastFrom !== me() || chat.lastAt !== createdAt) return;
+    await run(function () { return F().updateDoc(chatDoc(id), { lastText: previewText.slice(0, 140) }); });
+  }
+
+  async function editMessage(uid, message, text) {
+    const body = text.trim();
+    const problem = validateMessage(body);
+    if (problem) throw new BT.UserError(problem);
+    const id = chatIdWith(uid);
+    await run(function () { return F().updateDoc(F().doc(messagesCol(id), message.id), { text: body, editedAt: Date.now() }); });
+    refreshPreview(id, message.createdAt, body).catch(function () {});
+  }
+
+  async function unsendMessage(uid, message) {
+    const id = chatIdWith(uid);
+    await run(function () { return F().deleteDoc(F().doc(messagesCol(id), message.id)); });
+    refreshPreview(id, message.createdAt, 'Unsent a message').catch(function () {});
+  }
+
   /** Live list of the newest messages with someone, oldest first. Returns a function that stops listening. */
   function watchMessages(uid, onChange, onError) {
     const q = F().query(messagesCol(chatIdWith(uid)), F().orderBy('createdAt', 'desc'), F().limit(200));
@@ -366,7 +388,7 @@ window.SOC = (function () {
 
   return {
     MESSAGE_MAX: MESSAGE_MAX, otherIn: otherIn, isUnread: isUnread, validateMessage: validateMessage,
-    sendMessage: sendMessage, watchMessages: watchMessages, watchChats: watchChats, stopWatchingChats: stopWatchingChats,
+    sendMessage: sendMessage, editMessage: editMessage, unsendMessage: unsendMessage, watchMessages: watchMessages, watchChats: watchChats, stopWatchingChats: stopWatchingChats,
     onChats: onChats, chats: chats, chatsReady: chatsReady, chatWith: chatWith, unreadChatCount: unreadChatCount, markSeen: markSeen,
     VISIBILITY: VISIBILITY, POST_MAX: POST_MAX,
     syncProfile: syncProfile, ensureProfile: ensureProfile, getProfile: getProfile, findByUsername: findByUsername, search: search,

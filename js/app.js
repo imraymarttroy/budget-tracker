@@ -1430,8 +1430,98 @@
       }
       state.onChatsChange = function () { seen(); updateReceipt(); };
 
+      /* Edit and unsend, for your own messages. */
+      let editing = null;
+      let lastMessages = [];
+      function redraw() { drawMessages(lastMessages); }
+
+      function bubbleLine(m, mine) {
+        const bubble = h('p', { class: 'bubble', title: clockTime(m.createdAt) + (m.editedAt ? ' · Edited ' + clockTime(m.editedAt) : '') }, m.text);
+        if (!mine) return bubble;
+        const line = h('div', { class: 'bubble-line' });
+        const unsend = h('button', {
+          type: 'button', class: 'icon-btn bubble-tool', 'aria-label': 'Unsend message', title: 'Unsend',
+          onclick: async function (event) {
+            const button = event.currentTarget;
+            if (button.dataset.armed !== '1') {
+              button.dataset.armed = '1';
+              button.classList.add('armed');
+              button.setAttribute('aria-label', 'Click again to unsend');
+              button.title = 'Click again to unsend';
+              setTimeout(function () {
+                button.dataset.armed = '';
+                button.classList.remove('armed');
+                button.setAttribute('aria-label', 'Unsend message');
+                button.title = 'Unsend';
+              }, 4000);
+              return;
+            }
+            button.disabled = true;
+            try {
+              await SOC.unsendMessage(person.id, m);
+              toast('Message unsent.');
+            } catch (error) {
+              button.disabled = false;
+              toast(error.message || 'We could not unsend that message.');
+            }
+          }
+        }, icon('remove'));
+        const edit = h('button', {
+          type: 'button', class: 'icon-btn bubble-tool', 'aria-label': 'Edit message', title: 'Edit',
+          onclick: function () { editing = { id: m.id, draft: m.text }; redraw(); }
+        }, icon('edit'));
+        bubble.addEventListener('click', function () {
+          thread.querySelectorAll('.bubble-line.open').forEach(function (l) { if (l !== line) l.classList.remove('open'); });
+          line.classList.toggle('open');
+        });
+        line.append(unsend, edit, bubble);
+        return line;
+      }
+
+      function editor(m) {
+        const input = h('textarea', { class: 'bubble-input', rows: 1, maxlength: SOC.MESSAGE_MAX, 'aria-label': 'Edit message' });
+        input.value = editing.draft;
+        const grow = function () { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight + 2, 160) + 'px'; };
+        const save = h('button', { type: 'submit', class: 'btn primary small' }, 'Save');
+        const cancel = function () { editing = null; redraw(); };
+        input.addEventListener('input', function () { editing.draft = input.value; grow(); });
+        input.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') { event.preventDefault(); cancel(); }
+          if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+        });
+        const form = h('form', {
+          class: 'bubble-edit', novalidate: true,
+          onsubmit: async function (event) {
+            event.preventDefault();
+            const body = input.value;
+            if (body.trim() === m.text) { cancel(); return; }
+            const problem = SOC.validateMessage(body);
+            if (problem) { toast(problem); return; }
+            save.disabled = true;
+            try {
+              await SOC.editMessage(person.id, m, body);
+              editing = null;
+              redraw();
+            } catch (error) {
+              save.disabled = false;
+              toast(error.message || 'We could not edit that message.');
+            }
+          }
+        }, input, h('div', { class: 'bubble-edit-actions' },
+          h('button', { type: 'button', class: 'btn small', onclick: cancel }, 'Cancel'), save));
+        setTimeout(function () {
+          if (!input.isConnected) return;
+          grow();
+          input.focus({ preventScroll: true });
+          input.setSelectionRange(input.value.length, input.value.length);
+        }, 0);
+        return form;
+      }
+
       function drawMessages(messages) {
         if (closed) return;
+        lastMessages = messages;
+        if (editing && !messages.some(function (m) { return m.id === editing.id; })) editing = null;
         const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
         if (!messages.length) {
           thread.replaceChildren(h('div', { class: 'chat-hint' },
@@ -1456,9 +1546,10 @@
             const next = messages[messages.indexOf(m) + 1];
             const lastOfRun = !next || next.from !== m.from || next.createdAt - m.createdAt > 5 * 60 * 1000 ||
               new Date(next.createdAt).toDateString() !== day;
+            const stamp = clockTime(m.createdAt) + (m.editedAt ? ' · Edited' : '');
             nodes.push(h('div', { class: 'bubble-row' + (mine ? ' mine' : '') },
-              h('p', { class: 'bubble', title: clockTime(m.createdAt) }, m.text),
-              lastOfRun ? h('span', { class: 'bubble-time small muted' }, clockTime(m.createdAt)) : null,
+              mine && editing && editing.id === m.id ? editor(m) : bubbleLine(m, mine),
+              lastOfRun || m.editedAt ? h('span', { class: 'bubble-time small muted' }, lastOfRun ? stamp : 'Edited') : null,
               m === newestMine ? (receipt = h('span', { class: 'bubble-receipt small muted', 'aria-live': 'polite' })) : null));
           });
           receiptFor = newestMine ? newestMine.createdAt : 0;
