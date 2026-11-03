@@ -167,6 +167,17 @@ window.BT = (function () {
 
   /* ---------- Accounts ---------- */
 
+  /** The country (or EU) whose flag stands for each currency. */
+  const CURRENCY_FLAG = {
+    PHP: 'ph', USD: 'us', EUR: 'eu', GBP: 'gb', CAD: 'ca', AUD: 'au', NZD: 'nz', SGD: 'sg', JPY: 'jp', KRW: 'kr',
+    CNY: 'cn', HKD: 'hk', INR: 'in', IDR: 'id', MYR: 'my', THB: 'th', VND: 'vn', AED: 'ae', SAR: 'sa', ZAR: 'za',
+    BRL: 'br', MXN: 'mx', CHF: 'ch', SEK: 'se', NOK: 'no', DKK: 'dk', PLN: 'pl'
+  };
+
+  function flagUrl(code) {
+    return 'https://flagcdn.com/' + (CURRENCY_FLAG[code] || 'un') + '.svg';
+  }
+
   /** "PHP · Philippine peso (₱)", in the browser's language where it can. */
   function currencyLabel(code) {
     let name = code, symbol = '';
@@ -470,7 +481,7 @@ window.BT = (function () {
   }
 
   return {
-    BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES, currencyLabel: currencyLabel,
+    BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES, currencyLabel: currencyLabel, flagUrl: flagUrl,
     RESEND_COOLDOWN_MS: RESEND_COOLDOWN_MS, MIN_AGE: MIN_AGE,
     UserError: UserError, FieldError: FieldError,
     today: today, parseDate: parseDate, ageOn: ageOn, monthOf: monthOf, addMonths: addMonths,

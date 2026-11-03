@@ -99,6 +99,7 @@
     return h('div', { class: 'field ' + (options.wrapClass || '') },
       h('label', { for: id }, options.label),
       inner,
+      options.after || null,
       options.hint ? h('p', { class: 'hint', id: hintId }, options.hint) : null,
       h('p', { class: 'error', id: errorId, hidden: true }));
   }
@@ -609,15 +610,109 @@
       form);
   }
 
+  function flagImage(code) {
+    return h('img', { class: 'flag', src: BT.flagUrl(code), alt: '', width: 24, height: 18, loading: 'lazy' });
+  }
+
+  /** A currency dropdown that shows each country's flag. Works with mouse, touch and keyboard. */
+  function currencyPicker(id, initial) {
+    let value = initial;
+    let active = Math.max(0, BT.CURRENCIES.indexOf(initial));
+    const listId = id + '-list';
+    const face = h('span', { class: 'currency-face' });
+    const button = h('button', {
+      type: 'button',
+      id: id,
+      class: 'currency-button',
+      'aria-haspopup': 'listbox',
+      'aria-expanded': 'false',
+      'aria-controls': listId
+    }, face, h('span', { class: 'chevron', 'aria-hidden': 'true' }, '▾'));
+
+    const options = BT.CURRENCIES.map(function (code, index) {
+      return h('li', {
+        role: 'option',
+        id: listId + '-' + code,
+        class: 'currency-option',
+        'data-code': code,
+        onmousedown: function (event) { event.preventDefault(); },
+        onclick: function () { choose(index); close(true); },
+        onmousemove: function () { highlight(index); }
+      }, flagImage(code), h('span', null, BT.currencyLabel(code)));
+    });
+    const list = h('ul', { id: listId, role: 'listbox', class: 'currency-list', tabindex: '-1', 'aria-label': 'Currency', hidden: true }, options);
+
+    function drawFace() {
+      face.replaceChildren(flagImage(value), h('span', null, BT.currencyLabel(value)));
+      options.forEach(function (option) { option.setAttribute('aria-selected', String(option.dataset.code === value)); });
+    }
+
+    function highlight(index) {
+      active = Math.max(0, Math.min(options.length - 1, index));
+      options.forEach(function (option, i) { option.classList.toggle('active', i === active); });
+      list.setAttribute('aria-activedescendant', options[active].id);
+      options[active].scrollIntoView({ block: 'nearest' });
+    }
+
+    function choose(index) {
+      value = BT.CURRENCIES[index];
+      drawFace();
+    }
+
+    function open() {
+      list.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      highlight(BT.CURRENCIES.indexOf(value));
+      list.focus();
+      document.addEventListener('mousedown', outside);
+    }
+
+    function close(returnFocus) {
+      list.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('mousedown', outside);
+      if (returnFocus) button.focus();
+    }
+
+    function outside(event) {
+      if (!list.contains(event.target) && !button.contains(event.target)) close(false);
+    }
+
+    let typed = '', typedTimer = null;
+    list.addEventListener('keydown', function (event) {
+      const keys = { ArrowDown: active + 1, ArrowUp: active - 1, Home: 0, End: options.length - 1, PageDown: active + 6, PageUp: active - 6 };
+      if (event.key in keys) { event.preventDefault(); highlight(keys[event.key]); return; }
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); choose(active); close(true); return; }
+      if (event.key === 'Escape') { event.preventDefault(); close(true); return; }
+      if (event.key === 'Tab') { close(false); return; }
+      if (event.key.length === 1 && /\S/.test(event.key)) {
+        typed += event.key.toLowerCase();
+        clearTimeout(typedTimer);
+        typedTimer = setTimeout(function () { typed = ''; }, 700);
+        const match = BT.CURRENCIES.findIndex(function (code) {
+          return code.toLowerCase().indexOf(typed) === 0 || BT.currencyLabel(code).toLowerCase().split(' · ')[1].indexOf(typed) === 0;
+        });
+        if (match !== -1) highlight(match);
+      }
+    });
+    list.addEventListener('blur', function () { setTimeout(function () { if (document.activeElement !== button && !list.contains(document.activeElement)) close(false); }, 0); });
+
+    button.addEventListener('click', function () { if (list.hidden) open(); else close(true); });
+    button.addEventListener('keydown', function (event) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); open(); }
+    });
+
+    drawFace();
+    return { button: button, list: list, get value() { return value; } };
+  }
+
   function viewProfile() {
     const user = BT.currentUser();
     const nameControl = h('input', { id: 'f-name', name: 'name', value: user.name, autocomplete: 'name', maxlength: 60 });
     const fields = profileFields(user, function () { return nameControl.value.trim() || user.name; });
     nameControl.addEventListener('input', fields.redraw);
 
-    const currency = h('select', { id: 'f-currency', name: 'currency', 'aria-describedby': 'f-currency-hint' },
-      BT.CURRENCIES.map(function (code) { return h('option', { value: code }, BT.currencyLabel(code)); }));
-    currency.value = user.currency;
+    const currency = currencyPicker('f-currency', user.currency);
 
     const form = h('form', {
       class: 'stack',
@@ -636,7 +731,7 @@
       fields.picker,
       field({ name: 'name', label: 'Name', control: nameControl }),
       fields.bioField,
-      field({ name: 'currency', label: 'Currency', control: currency, hint: 'Changes the symbol only. Amounts are not converted.' }),
+      field({ name: 'currency', label: 'Currency', control: currency.button, wrapClass: 'currency-field', after: currency.list, hint: 'Changes the symbol only. Amounts are not converted.' }),
       formError(),
       h('div', { class: 'row' },
         h('button', { class: 'btn primary', type: 'submit' }, 'Save changes'),
