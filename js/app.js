@@ -196,8 +196,12 @@
     if (!user) return ['signin', 'signup', 'forgot'].indexOf(wanted) !== -1 ? wanted : 'signin';
     if (!user.verified) return 'verify';
     if (!user.profileDone) return 'setup';
-    return wanted === 'profile' ? 'profile' : 'dashboard';
+    if (/^u\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'person';
+    return ['profile', 'circle', 'notifications', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
   }
+
+  /* Views that show the sidebar. Only the signed-in owner of the account ever sees it. */
+  const SHELL_VIEWS = ['dashboard', 'profile', 'person', 'circle', 'notifications', 'settings'];
 
   const VIEWS = {
     signin: { title: 'Sign in', render: viewAuth },
@@ -206,19 +210,32 @@
     verify: { title: 'Verify your email', render: viewVerify },
     setup: { title: 'Set up your profile', render: viewSetup },
     dashboard: { title: 'Dashboard', render: viewDashboard },
-    profile: { title: 'Profile', render: viewProfile },
+    profile: { title: 'Profile', render: viewTimeline },
+    person: { title: 'Profile', render: viewPerson },
+    circle: { title: 'Circle', render: viewCircle },
+    notifications: { title: 'Notifications', render: viewNotifications },
+    settings: { title: 'Settings', render: viewSettings },
     offline: { title: 'Could not load', render: viewOffline },
     orphan: { title: 'Finish signing up', render: viewOrphan }
   };
 
   function render() {
     const view = resolveView();
-    if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
+    if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); }
+    if (view === 'person') {
+      /* keep #u/username as it is */
+    } else if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
     const changed = view !== state.view;
     state.view = view;
     state.refreshDashboard = null;
     document.title = VIEWS[view].title + ' · PassbookHub';
-    root.replaceChildren(VIEWS[view].render(view));
+    const content = VIEWS[view].render(view);
+    if (SHELL_VIEWS.indexOf(view) !== -1) {
+      startSocial();
+      root.replaceChildren(shell(view, content));
+    } else {
+      root.replaceChildren(content);
+    }
     if (changed) {
       window.scrollTo(0, 0);
       const heading = root.querySelector('h1');
@@ -580,6 +597,7 @@
         event.preventDefault();
         busy(form, 'Saving…', async function () {
           await BT.updateUser(user.id, { avatar: fields.data.picture, bio: fields.bio.value.trim(), profileDone: true });
+          await SOC.syncProfile(BT.currentUser()).catch(function (e) { console.error(e); });
           render();
         });
       }
@@ -706,7 +724,7 @@
     return { button: button, list: list, get value() { return value; } };
   }
 
-  function viewProfile() {
+  function viewSettings() {
     const user = BT.currentUser();
     const nameControl = h('input', { id: 'f-name', name: 'name', value: user.name, autocomplete: 'name', maxlength: 60 });
     const fields = profileFields(user, function () { return nameControl.value.trim() || user.name; });
@@ -723,8 +741,9 @@
         if (!name) return showErrors(form, { name: 'Enter your name.' });
         busy(form, 'Saving…', async function () {
           await BT.updateUser(user.id, { name: name, avatar: fields.data.picture, bio: fields.bio.value.trim(), currency: currency.value });
+          SOC.syncProfile(BT.currentUser()).catch(function (e) { console.error(e); });
           toast('Profile saved.');
-          location.hash = '#dashboard';
+          location.hash = '#profile';
         });
       }
     },
@@ -735,7 +754,7 @@
       formError(),
       h('div', { class: 'row' },
         h('button', { class: 'btn primary', type: 'submit' }, 'Save changes'),
-        h('a', { class: 'link', href: '#dashboard' }, 'Cancel')));
+        h('a', { class: 'link', href: '#profile' }, 'Cancel')));
 
     const dangerBox = h('div');
     function showDelete() {
@@ -769,9 +788,8 @@
     showDelete();
 
     return h('div', { class: 'wide' },
-      topbar(),
       h('div', { style: 'max-width:26rem' },
-        h('h1', { style: 'margin-bottom:1.5rem' }, 'Profile'),
+        h('h1', { style: 'margin-bottom:1.5rem' }, 'Settings'),
         form,
         h('section', { class: 'section' },
           h('h2', null, 'Account'),
@@ -782,22 +800,446 @@
         h('section', { class: 'section' }, h('h2', { style: 'margin-bottom:0.75rem' }, 'Delete account'), dangerBox)));
   }
 
-  function topbar() {
-    return h('header', { class: 'topbar' },
-      h('a', { class: 'brand', href: '#dashboard' }, 'PassbookHub'),
+  /* ---------- Sidebar ---------- */
+
+  const NAV_ICONS = {
+    dashboard: '<rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/>',
+    profile: '<circle cx="10" cy="7" r="3.5"/><path d="M3.5 17c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/>',
+    circle: '<circle cx="7" cy="7.5" r="2.75"/><circle cx="13.5" cy="8" r="2.25"/><path d="M2.5 16c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4M12 12.2c2.3-.4 4.5.9 5.2 3.8"/>',
+    notifications: '<path d="M5 13.5V9a5 5 0 0 1 10 0v4.5l1.5 1.5h-13z"/><path d="M8.5 17.5a1.6 1.6 0 0 0 3 0"/>',
+    settings: '<circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/>',
+    signout: '<path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H7.5"/>'
+  };
+
+  function navIcon(name) {
+    const holder = document.createElement('span');
+    holder.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + NAV_ICONS[name] + '</svg>';
+    return holder.firstChild;
+  }
+
+  const badges = [];
+
+  function drawBadges() {
+    const count = SOC.unreadCount();
+    badges.forEach(function (badge) {
+      if (!badge.isConnected) return;
+      badge.textContent = count > 99 ? '99+' : String(count);
+      badge.hidden = count === 0;
+      badge.setAttribute('aria-label', count + ' new');
+    });
+  }
+
+  let socialFor = null;
+  function startSocial() {
+    const user = BT.currentUser();
+    if (!user || socialFor === user.id) return;
+    socialFor = user.id;
+    SOC.ensureProfile(user).catch(function (e) { console.error(e); });
+    SOC.watchNotifications();
+  }
+
+  function shell(view, content) {
+    const user = BT.currentUser();
+    const current = view;
+    function item(name, href, label) {
+      const link = h('a', { class: 'nav-item', href: href, 'aria-current': current === name ? 'page' : null }, navIcon(name), h('span', null, label));
+      if (name === 'notifications') {
+        const badge = h('span', { class: 'nav-badge', hidden: true });
+        badges.push(badge);
+        link.appendChild(badge);
+      }
+      return h('li', null, link);
+    }
+    const side = h('aside', { class: 'sidebar' },
+      h('a', { class: 'brand sidebar-brand', href: '#dashboard' }, 'PassbookHub'),
+      h('a', { class: 'sidebar-me', href: '#profile' },
+        avatar(user, user.avatar, 2.25),
+        h('span', null, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username))),
       h('nav', { 'aria-label': 'Main' },
-        h('a', { class: 'link', href: '#dashboard', 'aria-current': state.view === 'dashboard' ? 'page' : null }, 'Dashboard'),
-        h('a', { class: 'link', href: '#profile', 'aria-current': state.view === 'profile' ? 'page' : null }, 'Profile'),
+        h('ul', { class: 'nav-list' },
+          item('dashboard', '#dashboard', 'Dashboard'),
+          item('profile', '#profile', 'Profile'),
+          item('circle', '#circle', 'Circle'),
+          item('notifications', '#notifications', 'Notifications'),
+          item('settings', '#settings', 'Settings'),
+          h('li', null, h('button', {
+            type: 'button',
+            class: 'nav-item',
+            onclick: function () {
+              toastBox.hidden = true;
+              state.notice = 'You have signed out.';
+              socialFor = null;
+              SOC.stopWatching();
+              location.hash = '#signin';
+              BT.signOut();
+            }
+          }, navIcon('signout'), h('span', null, 'Sign out'))))));
+    drawBadges();
+    return h('div', { class: 'app-shell' }, side, h('div', { class: 'app-main' }, content));
+  }
+
+  /* ---------- Profiles and posts ---------- */
+
+  function timeAgo(ms) {
+    const seconds = Math.round((Date.now() - ms) / 1000);
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return minutes + 'm';
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return hours + 'h';
+    const days = Math.round(hours / 24);
+    if (days < 7) return days + 'd';
+    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+  }
+
+  const VIS_ICONS = {
+    public: '<circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2 2.2 2.8 4.5 2.8 7S12 14.8 10 17c-2-2.2-2.8-4.5-2.8-7S8 5.2 10 3z"/>',
+    circle: NAV_ICONS.circle,
+    private: '<rect x="4.5" y="9" width="11" height="8" rx="1.5"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>'
+  };
+
+  function visIcon(visibility) {
+    const holder = document.createElement('span');
+    holder.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + VIS_ICONS[visibility] + '</svg>';
+    return holder.firstChild;
+  }
+
+  function visibilitySelect(id, value, label) {
+    const select = h('select', { id: id, class: 'vis-select', 'aria-label': label || 'Who can see this' },
+      Object.keys(SOC.VISIBILITY).map(function (key) { return h('option', { value: key }, SOC.VISIBILITY[key].label); }));
+    select.value = value;
+    return select;
+  }
+
+  function profileHeader(person, actions, stats) {
+    return h('section', { class: 'profile-head' },
+      h('div', { class: 'profile-cover', 'aria-hidden': 'true' }),
+      h('div', { class: 'profile-id' },
+        avatar(person, person.avatar, 6.5),
+        h('div', { class: 'profile-names' },
+          h('h1', null, person.name),
+          h('p', { class: 'muted' }, '@' + person.username),
+          stats || null),
+        actions ? h('div', { class: 'profile-actions' }, actions) : null),
+      person.bio ? h('p', { class: 'profile-bio' }, person.bio) : null);
+  }
+
+  function postCard(person, post, isOwner, onChange) {
+    const meta = h('div', { class: 'post-meta small muted' },
+      h('span', null, timeAgo(post.createdAt)), h('span', { 'aria-hidden': 'true' }, '·'));
+    const visLabel = h('span', { class: 'post-vis', title: SOC.VISIBILITY[post.visibility].hint }, visIcon(post.visibility), SOC.VISIBILITY[post.visibility].label);
+    meta.appendChild(visLabel);
+
+    let tools = null;
+    if (isOwner) {
+      const select = visibilitySelect('vis-' + post.id, post.visibility, 'Change who can see this post');
+      select.addEventListener('change', async function () {
+        const previous = post.visibility;
+        select.disabled = true;
+        try {
+          await SOC.setPostVisibility(post.id, select.value);
+          post.visibility = select.value;
+          visLabel.replaceChildren(visIcon(post.visibility), SOC.VISIBILITY[post.visibility].label);
+          toast('Now visible to: ' + SOC.VISIBILITY[post.visibility].label + '.');
+        } catch (error) {
+          select.value = previous;
+          toast(error.message);
+        }
+        select.disabled = false;
+      });
+      tools = h('div', { class: 'post-tools' },
+        select,
         h('button', {
           type: 'button',
-          class: 'link',
-          onclick: function () {
-            toastBox.hidden = true;
-            state.notice = 'You have signed out.';
-            location.hash = '#signin';
-            BT.signOut();
+          class: 'icon-btn',
+          'aria-label': 'Delete post',
+          title: 'Delete post',
+          onclick: async function (event) {
+            const button = event.currentTarget;
+            if (!confirmTwice(button)) return;
+            try {
+              await SOC.deletePost(post.id);
+              onChange();
+              toast('Post deleted.');
+            } catch (error) {
+              toast(error.message);
+            }
           }
-        }, 'Sign out')));
+        }, icon('remove')));
+    }
+
+    return h('article', { class: 'post' },
+      h('header', { class: 'post-head' },
+        avatar(person, person.avatar, 2.5),
+        h('div', null, h('strong', null, person.name), meta),
+        tools),
+      h('p', { class: 'post-text' }, post.text));
+  }
+
+  /** First click arms the button, second click within 4 seconds confirms. Avoids blocking dialogs. */
+  function confirmTwice(button) {
+    if (button.dataset.armed === '1') return true;
+    button.dataset.armed = '1';
+    button.classList.add('armed');
+    button.setAttribute('aria-label', 'Click again to delete');
+    button.title = 'Click again to delete';
+    setTimeout(function () {
+      button.dataset.armed = '';
+      button.classList.remove('armed');
+      button.setAttribute('aria-label', 'Delete post');
+      button.title = 'Delete post';
+    }, 4000);
+    return false;
+  }
+
+  function postList(person, rel) {
+    const box = h('div', { class: 'posts' }, h('p', { class: 'muted small' }, 'Loading posts…'));
+    async function load() {
+      try {
+        const posts = await SOC.listPosts(person.id, rel);
+        if (!box.isConnected && box.parentNode) return;
+        if (!posts.length) {
+          box.replaceChildren(h('p', { class: 'empty' }, rel === 'self' ? 'You have not posted yet.' : 'No posts to show.'));
+          return;
+        }
+        box.replaceChildren.apply(box, posts.map(function (post) { return postCard(person, post, rel === 'self', load); }));
+      } catch (error) {
+        box.replaceChildren(h('p', { class: 'empty' }, error.message || 'We could not load posts.'));
+      }
+    }
+    box.reload = load;
+    load();
+    return box;
+  }
+
+  function composer(user, onPosted) {
+    const counter = h('span', { class: 'small muted num' });
+    const text = h('textarea', { id: 'f-post', name: 'post', rows: 3, maxlength: SOC.POST_MAX, placeholder: 'What is on your mind, ' + user.name.split(' ')[0] + '?' });
+    const select = visibilitySelect('f-visibility', state.postVisibility || 'circle');
+    select.addEventListener('change', function () { state.postVisibility = select.value; });
+    function count() { counter.textContent = text.value.length + ' / ' + SOC.POST_MAX; }
+    text.addEventListener('input', count);
+    count();
+    const form = h('form', {
+      class: 'composer',
+      novalidate: true,
+      onsubmit: function (event) {
+        event.preventDefault();
+        const problem = SOC.validatePost(text.value, select.value);
+        if (problem) return showErrors(form, { _form: problem });
+        busy(form, 'Posting…', async function () {
+          await SOC.createPost(text.value, select.value);
+          text.value = '';
+          count();
+          toast('Posted.');
+          onPosted();
+        });
+      }
+    },
+      h('div', { class: 'composer-top' }, avatar(user, user.avatar, 2.5), h('label', { class: 'vh', for: 'f-post' }, 'Write a post'), text),
+      formError(),
+      h('div', { class: 'composer-bar' },
+        h('label', { class: 'vis-picker' }, h('span', { class: 'small muted' }, 'Who can see this'), select),
+        counter,
+        h('button', { class: 'btn primary', type: 'submit' }, 'Post')));
+    return form;
+  }
+
+  function circleCount(uid) {
+    const node = h('p', { class: 'small muted profile-stats' });
+    SOC.circleMembers(uid).then(function (people) {
+      node.textContent = people.length === 1 ? '1 in circle' : people.length + ' in circle';
+    }).catch(function () {});
+    return node;
+  }
+
+  function viewTimeline() {
+    const user = BT.currentUser();
+    const person = Object.assign({ id: user.id }, { name: user.name, username: user.username, avatar: user.avatar, bio: user.bio });
+    const posts = postList(person, 'self');
+    return h('div', { class: 'wide' },
+      profileHeader(person, h('a', { class: 'btn', href: '#settings' }, 'Edit profile'), circleCount(user.id)),
+      composer(user, function () { posts.reload(); }),
+      h('h2', { class: 'posts-title' }, 'Posts'),
+      posts);
+  }
+
+  function relationActions(person, rel, redraw) {
+    async function act(button, work, message) {
+      button.disabled = true;
+      try {
+        await work();
+        if (message) toast(message);
+        redraw();
+      } catch (error) {
+        button.disabled = false;
+        toast(error.message);
+      }
+    }
+    if (rel === 'circle') {
+      const remove = h('button', { type: 'button', class: 'btn' }, 'In your circle ✓');
+      remove.addEventListener('click', function () {
+        if (remove.dataset.armed === '1') return act(remove, function () { return SOC.removeFromCircle(person.id); }, person.name + ' was removed from your circle.');
+        remove.dataset.armed = '1';
+        remove.textContent = 'Remove from circle?';
+        setTimeout(function () { if (remove.isConnected) { remove.dataset.armed = ''; remove.textContent = 'In your circle ✓'; } }, 4000);
+      });
+      return remove;
+    }
+    if (rel === 'sent') {
+      const cancel = h('button', { type: 'button', class: 'btn' }, 'Request sent · Cancel');
+      cancel.addEventListener('click', function () { act(cancel, function () { return SOC.cancelRequest(person.id); }, 'Request cancelled.'); });
+      return cancel;
+    }
+    if (rel === 'received') {
+      const accept = h('button', { type: 'button', class: 'btn primary' }, 'Accept');
+      const decline = h('button', { type: 'button', class: 'btn' }, 'Decline');
+      accept.addEventListener('click', function () { act(accept, function () { return SOC.acceptRequest(person.id); }, person.name + ' is now in your circle.'); });
+      decline.addEventListener('click', function () { act(decline, function () { return SOC.declineRequest(person.id); }, 'Request declined.'); });
+      return h('div', { class: 'row' }, h('span', { class: 'small muted' }, 'Wants to add you'), accept, decline);
+    }
+    const add = h('button', { type: 'button', class: 'btn primary' }, '+ Add to circle');
+    add.addEventListener('click', function () { act(add, function () { return SOC.sendRequest(person.id); }, 'Circle request sent to ' + person.name + '.'); });
+    return add;
+  }
+
+  function viewPerson() {
+    const username = location.hash.slice(3);
+    const box = h('div', { class: 'wide' }, h('p', { class: 'muted' }, 'Loading profile…'));
+    async function load() {
+      try {
+        const person = await SOC.findByUsername(username);
+        if (!box.isConnected && box.parentNode) return;
+        if (!person) {
+          box.replaceChildren(h('div', { class: 'empty-state' },
+            h('h1', null, 'Profile not found'),
+            h('p', { class: 'muted' }, 'No one on PassbookHub has the username @' + username + '.'),
+            h('a', { class: 'btn', href: '#circle' }, 'Search for people')));
+          return;
+        }
+        if (person.id === BT.currentUser().id) { location.hash = '#profile'; return; }
+        const rel = await SOC.relation(person.id);
+        document.title = person.name + ' · PassbookHub';
+        box.replaceChildren(
+          profileHeader(person, relationActions(person, rel, load), null),
+          rel === 'circle' ? null : h('p', { class: 'small muted vis-note' },
+            rel === 'none' || rel === 'sent' ? 'You can see ' + person.name.split(' ')[0] + '’s public posts. Join their circle to see posts shared with their circle.' : ''),
+          h('h2', { class: 'posts-title' }, 'Posts'),
+          postList(person, rel));
+      } catch (error) {
+        box.replaceChildren(h('p', { class: 'empty' }, error.message || 'We could not load this profile.'));
+      }
+    }
+    load();
+    return box;
+  }
+
+  /* ---------- Circle ---------- */
+
+  function personRow(person, extra) {
+    return h('li', { class: 'person' },
+      h('a', { class: 'person-link', href: '#u/' + person.username },
+        avatar(person, person.avatar, 2.75),
+        h('span', { class: 'person-names' }, h('strong', null, person.name), h('span', { class: 'small muted' }, '@' + person.username))),
+      extra || null);
+  }
+
+  function viewCircle() {
+    const input = h('input', { id: 'f-search', type: 'search', placeholder: 'Search by name or @username', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false' });
+    const results = h('div', { 'aria-live': 'polite' });
+    const members = h('div', null, h('p', { class: 'muted small' }, 'Loading your circle…'));
+    let timer = null, latest = 0;
+
+    async function runSearch() {
+      const term = input.value.trim();
+      const ticket = ++latest;
+      if (term.replace(/^@/, '').length < 1) { results.replaceChildren(); return; }
+      results.replaceChildren(h('p', { class: 'muted small' }, 'Searching…'));
+      try {
+        const people = await SOC.search(term);
+        if (ticket !== latest) return;
+        results.replaceChildren(people.length
+          ? h('ul', { class: 'people' }, people.map(function (p) { return personRow(p); }))
+          : h('p', { class: 'empty' }, 'No one found for “' + term + '”.'));
+      } catch (error) {
+        if (ticket === latest) results.replaceChildren(h('p', { class: 'empty' }, error.message));
+      }
+    }
+    input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(runSearch, 300); });
+
+    SOC.circleMembers().then(function (people) {
+      members.replaceChildren(people.length
+        ? h('ul', { class: 'people' }, people.map(function (p) { return personRow(p); }))
+        : h('p', { class: 'empty' }, 'Your circle is empty. Search for people above to add them.'));
+    }).catch(function (error) { members.replaceChildren(h('p', { class: 'empty' }, error.message)); });
+
+    setTimeout(function () { if (input.isConnected) input.focus(); }, 0);
+    return h('div', { class: 'wide' },
+      h('h1', null, 'Circle'),
+      h('p', { class: 'muted', style: 'margin:0.25rem 0 1.25rem' }, 'Your circle is your PassbookHub friends. Posts you share with “Circle” are visible only to them.'),
+      h('div', { class: 'search-box' }, h('label', { class: 'vh', for: 'f-search' }, 'Search people'), navIcon('circle'), input),
+      results,
+      h('h2', { class: 'posts-title' }, 'Your circle'),
+      members);
+  }
+
+  /* ---------- Notifications ---------- */
+
+  function viewNotifications() {
+    const list = h('div');
+
+    function draw(notes) {
+      if (!list.isConnected && list.parentNode) return;
+      if (!notes.length) {
+        list.replaceChildren(h('p', { class: 'empty' }, 'No notifications yet. When someone adds you to their circle, you will see it here.'));
+        return;
+      }
+      const ul = h('ul', { class: 'notes' });
+      notes.forEach(function (note) {
+        const li = h('li', { class: 'note' + (note.read ? '' : ' unread') }, h('p', { class: 'muted small' }, 'Loading…'));
+        ul.appendChild(li);
+        SOC.getProfile(note.from).then(function (person) {
+          if (!person) { li.remove(); return; }
+          const link = h('a', { href: '#u/' + person.username }, h('strong', null, person.name));
+          const text = note.type === 'request'
+            ? h('p', null, link, ' wants to add you to their circle.')
+            : h('p', null, link, ' accepted your circle request.');
+          let actions = null;
+          if (note.type === 'request') {
+            const accept = h('button', { type: 'button', class: 'btn primary' }, 'Accept');
+            const decline = h('button', { type: 'button', class: 'btn' }, 'Decline');
+            accept.addEventListener('click', async function () {
+              accept.disabled = decline.disabled = true;
+              try { await SOC.acceptRequest(person.id); toast(person.name + ' is now in your circle.'); }
+              catch (error) { accept.disabled = decline.disabled = false; toast(error.message); }
+            });
+            decline.addEventListener('click', async function () {
+              accept.disabled = decline.disabled = true;
+              try { await SOC.declineRequest(person.id); toast('Request declined.'); }
+              catch (error) { accept.disabled = decline.disabled = false; toast(error.message); }
+            });
+            actions = h('div', { class: 'row' }, accept, decline);
+          } else {
+            actions = h('button', {
+              type: 'button', class: 'icon-btn', 'aria-label': 'Dismiss', title: 'Dismiss',
+              onclick: function () { SOC.dismissNotification(note.id).catch(function (e) { toast(e.message); }); }
+            }, icon('over'));
+          }
+          li.replaceChildren(
+            h('a', { href: '#u/' + person.username, tabindex: '-1', 'aria-hidden': 'true' }, avatar(person, person.avatar, 2.75)),
+            h('div', { class: 'note-body' }, text, h('p', { class: 'small muted' }, timeAgo(note.createdAt))),
+            actions);
+        }).catch(function () { li.remove(); });
+      });
+      list.replaceChildren(ul);
+    }
+
+    draw(SOC.notifications());
+    setTimeout(function () { SOC.markAllRead().catch(function () {}); }, 1500);
+    return h('div', { class: 'wide' },
+      h('h1', { style: 'margin-bottom:1.25rem' }, 'Notifications'),
+      list,
+      (function () { state.drawNotes = draw; return null; })());
   }
 
   /* ---------- Dashboard ---------- */
@@ -1014,7 +1456,7 @@
                   form.elements.desc.focus();
                 }
               }, 'Add income'),
-              h('span', { class: 'small muted' }, 'Amounts are in ' + user.currency + '. ', h('a', { href: '#profile' }, 'Change currency'))))
+              h('span', { class: 'small muted' }, 'Amounts are in ' + user.currency + '. ', h('a', { href: '#settings' }, 'Change currency'))))
         : null;
 
       summary.replaceChildren(
@@ -1081,7 +1523,6 @@
     drawAll();
 
     return h('div', { class: 'wide' },
-      topbar(),
       h('section', { class: 'identity' },
         avatar(user, user.avatar, 3.25),
         h('div', null,
@@ -1107,6 +1548,13 @@
 
   /* ---------- Start ---------- */
 
+  SOC.onNotifications(function (notes) {
+    drawBadges();
+    if (state.view === 'notifications' && state.drawNotes) {
+      state.drawNotes(notes);
+      SOC.markAllRead().catch(function () {});
+    }
+  });
   root.replaceChildren(h('div', { class: 'narrow' }, h('p', { class: 'muted', role: 'status' }, 'Loading…')));
   window.addEventListener('hashchange', function () { if (state.view !== null) render(); });
   BT.onSessionChange(render);

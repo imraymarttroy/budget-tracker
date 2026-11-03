@@ -31,6 +31,87 @@ service cloud.firestore {
       }
     }
 
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    // profiles/{uid}: what other PassbookHub members can see. Never budgets, birthdays or emails.
+    match /profiles/{uid} {
+      allow read: if signedIn();
+      allow delete: if signedInAs(uid);
+      allow create, update: if signedInAs(uid) && verified()
+        && request.resource.data.keys().hasOnly(['name', 'nameLower', 'username', 'usernameLower', 'avatar', 'bio', 'updatedAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60
+        && request.resource.data.nameLower == request.resource.data.name.lower()
+        && request.resource.data.username == get(/databases/$(database)/documents/users/$(uid)).data.username
+        && request.resource.data.usernameLower == request.resource.data.username.lower()
+        && request.resource.data.bio is string && request.resource.data.bio.size() <= 160
+        && (request.resource.data.avatar == null
+            || (request.resource.data.avatar is string && request.resource.data.avatar.size() < 300000));
+
+      function inCircle() {
+        return exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid));
+      }
+
+      // Posts: Public, Circle or Only me.
+      match /posts/{postId} {
+        allow read: if signedIn() && (request.auth.uid == uid
+          || resource.data.visibility == 'public'
+          || (resource.data.visibility == 'circle' && inCircle()));
+        allow create: if signedInAs(uid) && verified()
+          && request.resource.data.keys().hasOnly(['text', 'visibility', 'createdAt'])
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500
+          && request.resource.data.visibility in ['public', 'circle', 'private']
+          && request.resource.data.createdAt is int;
+        allow update: if signedInAs(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility'])
+          && request.resource.data.visibility in ['public', 'circle', 'private'];
+        allow delete: if signedInAs(uid);
+      }
+
+      // circle/{member}: written to both people's lists when a request is accepted.
+      match /circle/{member} {
+        allow read: if signedIn() && (request.auth.uid == uid || request.auth.uid == member);
+        allow create: if verified() && request.resource.data.keys().hasOnly(['since'])
+          && ((request.auth.uid == uid && exists(/databases/$(database)/documents/profiles/$(uid)/requests/$(member)))
+            || (request.auth.uid == member && exists(/databases/$(database)/documents/profiles/$(member)/requests/$(uid))));
+        allow delete: if signedIn() && (request.auth.uid == uid || request.auth.uid == member);
+      }
+
+      // requests/{from}: someone asking to join this person's circle.
+      match /requests/{from} {
+        allow read, delete: if signedIn() && (request.auth.uid == uid || request.auth.uid == from);
+        allow create: if verified() && request.auth.uid == from && from != uid
+          && request.resource.data.keys().hasOnly(['createdAt'])
+          && !exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(from));
+      }
+
+      // notifications/{id}: only the owner reads them. Others may only leave the two kinds below.
+      match /notifications/{noteId} {
+        function validNote() {
+          return verified()
+            && request.resource.data.keys().hasOnly(['type', 'from', 'createdAt', 'read'])
+            && request.resource.data.from == request.auth.uid
+            && request.resource.data.read == false
+            && ((request.resource.data.type == 'request' && noteId == 'request_' + request.auth.uid
+                  && existsAfter(/databases/$(database)/documents/profiles/$(uid)/requests/$(request.auth.uid)))
+              || (request.resource.data.type == 'accepted' && noteId == 'accepted_' + request.auth.uid
+                  && existsAfter(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid))));
+        }
+        allow read: if signedInAs(uid);
+        allow create: if validNote();
+        allow update: if validNote()
+          || (signedInAs(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+        allow delete: if signedInAs(uid)
+          || (signedIn() && resource.data.from == request.auth.uid && resource.data.type == 'request');
+      }
+    }
+
     // usernames/{lowercase name}: keeps usernames unique. Anyone may check if a name is taken.
     match /usernames/{name} {
       allow get: if true;

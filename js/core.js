@@ -312,6 +312,7 @@ window.BT = (function () {
     }
     try {
       const uid = user.uid;
+      if (window.SOC) await window.SOC.deleteEverything();
       const ids = cache.txs.map(function (t) { return t.id; });
       for (let i = 0; i < ids.length; i += 400) {
         const batch = F().writeBatch(window.FB.db);
