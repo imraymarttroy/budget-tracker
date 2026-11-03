@@ -254,7 +254,7 @@
     const changed = view !== state.view;
     state.view = view;
     state.refreshDashboard = null;
-    document.title = VIEWS[view].title + ' · PassbookHub';
+    document.title = (view === 'signin' || view === 'signup') ? 'PassbookHub' : VIEWS[view].title + ' · PassbookHub';
     document.body.classList.toggle('auth-body', view === 'signin' || view === 'signup');
     const content = VIEWS[view].render(view);
     if (SHELL_VIEWS.indexOf(view) !== -1) {
@@ -310,7 +310,7 @@
         h('span', { class: 'auth-pill' }, signin ? 'Good to see you again \u{1F44B}' : 'Budget the simple way \u2728'),
         h('p', { class: 'auth-hero-title' }, signin ? 'Pick up where you left off' : 'Start your budget'),
         h('p', { class: 'auth-hero-sub' }, signin
-          ? 'Your money, split by the 50/30/20 rule.'
+          ? 'Your daily feed for financial freedom.'
           : 'Follow these simple steps to set up your account.')),
       h('ol', { class: 'auth-steps' + (signin ? ' split' : '') },
         cards.map(function (card, i) {
