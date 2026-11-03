@@ -1727,3 +1727,8 @@ button.note-bubble:hover { transform: translateY(-1px); }
 /* ---------- Circle: uncircle and block icons ---------- */
 .person-actions { display: flex; align-items: center; gap: 0.375rem; }
 .danger-icon:hover { color: var(--critical-ink) !important; background: color-mix(in srgb, var(--critical) 12%, transparent) !important; }
+
+/* Cover photo: no flash. It is there on the first frame when known; the first time it fades in. */
+.pf-hero.has-cover.cover-fade::before { animation: cover-in 0.45s ease both; }
+@keyframes cover-in { from { opacity: 0; } to { opacity: 0.6; } }
+@media (prefers-reduced-motion: reduce) { .pf-hero.has-cover.cover-fade::before { animation: none; } }
