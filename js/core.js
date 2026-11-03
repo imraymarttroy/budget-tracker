@@ -1,13 +1,9 @@
-/* Data, dates, password hashing and budget maths. No DOM code lives here. */
+/* Accounts and data (Firebase), dates and budget maths. No DOM code lives here. */
 window.BT = (function () {
   'use strict';
 
-  const KEYS = { users: 'bt.users', session: 'bt.session', codes: 'bt.codes', tx: 'bt.tx.' };
-  const PBKDF2_ITERATIONS = 600000;
   const MIN_AGE = 13;
-  const CODE_TTL_MS = 15 * 60 * 1000;
-  const CODE_MAX_ATTEMPTS = 5;
-  const RESEND_COOLDOWN_MS = 30 * 1000;
+  const RESEND_COOLDOWN_MS = 60 * 1000;
 
   const BUCKETS = [
     { id: 'needs', label: 'Needs', share: 50, hint: 'Rent, groceries, utilities, transport, minimum debt payments.' },
@@ -26,36 +22,94 @@ window.BT = (function () {
   /** An error whose message is safe and useful to show to the person. */
   class UserError extends Error {}
 
-  /* ---------- Storage ---------- */
-
-  function read(key, fallback) {
-    const raw = localStorage.getItem(key);
-    if (raw === null) return fallback;
-    try { return JSON.parse(raw); } catch (e) { return fallback; }
-  }
-
-  function write(key, value) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (e) {
-      throw new UserError('Your browser could not save this. Its storage may be full or turned off.');
+  /** A UserError tied to specific form fields, e.g. { email: 'That email is taken.' }. */
+  class FieldError extends UserError {
+    constructor(fields) {
+      super(fields[Object.keys(fields)[0]]);
+      this.fields = fields;
     }
   }
 
-  function storageAvailable() {
+  /* ---------- Firebase plumbing ---------- */
+
+  const A = function () { return window.FB.A; };
+  const F = function () { return window.FB.F; };
+  const RESEND_KEY = 'pbh.lastEmail';
+
+  function userDoc(uid) { return F().doc(window.FB.db, 'users', uid); }
+  function txCol(uid) { return F().collection(window.FB.db, 'users', uid, 'tx'); }
+  function nameDoc(username) { return F().doc(window.FB.db, 'usernames', username.toLowerCase()); }
+
+  /** Where Firebase's verification and reset emails send people back to. */
+  function actionSettings() {
+    return { url: location.origin + location.pathname };
+  }
+
+  function friendly(error) {
+    if (error instanceof UserError) return error;
+    const code = (error && error.code) || '';
+    const messages = {
+      'auth/network-request-failed': 'We could not reach the server. Check your connection and try again.',
+      'auth/too-many-requests': 'Too many attempts. Wait a few minutes and try again.',
+      'auth/weak-password': 'Use a stronger password with at least 8 characters.',
+      'auth/invalid-email': 'Enter a valid email address.',
+      'auth/requires-recent-login': 'For your security, enter your password again.',
+      'unavailable': 'We could not reach the server. Check your connection and try again.',
+      'permission-denied': 'You do not have permission to do that.'
+    };
+    console.error(error);
+    return new UserError(messages[code] || 'Something went wrong. Please try again.');
+  }
+
+  /* ---------- Session cache ---------- */
+
+  const cache = { authUser: null, profile: null, txs: [], loadError: false };
+  let signUpInProgress = false;
+
+  async function loadSession(authUser) {
+    cache.authUser = authUser;
+    cache.profile = null;
+    cache.txs = [];
+    cache.loadError = false;
+    if (!authUser) return;
     try {
-      localStorage.setItem('bt.check', '1');
-      localStorage.removeItem('bt.check');
-      return true;
-    } catch (e) {
-      return false;
+      const snap = await F().getDoc(userDoc(authUser.uid));
+      if (!snap.exists()) return;
+      cache.profile = Object.assign({}, snap.data(), { id: authUser.uid });
+      const list = await F().getDocs(txCol(authUser.uid));
+      cache.txs = list.docs.map(function (d) { return Object.assign({}, d.data(), { id: d.id }); });
+    } catch (error) {
+      console.error(error);
+      cache.loadError = true;
     }
   }
 
-  function makeId() {
-    return Array.from(crypto.getRandomValues(new Uint8Array(12)), function (b) {
-      return b.toString(16).padStart(2, '0');
-    }).join('');
+  /** Calls back whenever someone signs in or out, after their data has loaded. */
+  function onSessionChange(callback) {
+    A().onAuthStateChanged(window.FB.auth, async function (authUser) {
+      if (signUpInProgress) return;
+      await loadSession(authUser);
+      callback();
+    });
+  }
+
+  function sessionState() {
+    if (!cache.authUser) return 'signed-out';
+    if (cache.loadError) return 'error';
+    if (!cache.profile) return 'orphan';
+    return 'ready';
+  }
+
+  function currentUser() {
+    if (!cache.authUser || !cache.profile) return null;
+    return Object.assign({}, cache.profile, {
+      email: cache.authUser.email,
+      verified: cache.authUser.emailVerified
+    });
+  }
+
+  async function reloadSession() {
+    await loadSession(window.FB.auth.currentUser);
   }
 
   /* ---------- Dates (always local time, never UTC) ---------- */
@@ -111,66 +165,7 @@ window.BT = (function () {
     return toLocalDate(value).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
   }
 
-  /* ---------- Hashing ---------- */
-
-  function toBase64(buffer) {
-    return btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)));
-  }
-
-  function fromBase64(text) {
-    return Uint8Array.from(atob(text), function (c) { return c.charCodeAt(0); });
-  }
-
-  function cryptoAvailable() {
-    return !!(window.crypto && crypto.subtle);
-  }
-
-  async function derive(password, salt, iterations) {
-    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-    return crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt, iterations: iterations }, key, 256);
-  }
-
-  /** One-way, salted PBKDF2-SHA-256. The original password cannot be recovered from the result. */
-  async function hashPassword(password) {
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const bits = await derive(password, salt, PBKDF2_ITERATIONS);
-    return { algorithm: 'PBKDF2-SHA-256', iterations: PBKDF2_ITERATIONS, salt: toBase64(salt), hash: toBase64(bits) };
-  }
-
-  async function passwordMatches(password, record) {
-    const bits = await derive(password, fromBase64(record.salt), record.iterations);
-    return toBase64(bits) === record.hash;
-  }
-
-  async function sha256(text) {
-    return toBase64(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
-  }
-
   /* ---------- Accounts ---------- */
-
-  function allUsers() { return read(KEYS.users, {}); }
-
-  function getUser(id) { return allUsers()[id] || null; }
-
-  function findUser(identifier) {
-    const value = (identifier || '').trim().toLowerCase().replace(/^@/, '');
-    if (!value) return null;
-    const users = allUsers();
-    return Object.keys(users).map(function (id) { return users[id]; }).find(function (u) {
-      return u.username.toLowerCase() === value || u.email === value;
-    }) || null;
-  }
-
-  function usernameTaken(username) {
-    const value = username.toLowerCase();
-    const users = allUsers();
-    return Object.keys(users).some(function (id) { return users[id].username.toLowerCase() === value; });
-  }
-
-  function emailTaken(email) {
-    const users = allUsers();
-    return Object.keys(users).some(function (id) { return users[id].email === email; });
-  }
 
   function guessCurrency() {
     try {
@@ -181,7 +176,10 @@ window.BT = (function () {
     }
   }
 
-  /** Returns a map of field name to error message. Empty means valid. */
+  function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
+
+  /** Returns a map of field name to error message. Empty means valid. Username and email
+      availability are checked by the server when the account is created. */
   function validateSignUp(input, onDate) {
     const errors = {};
     if (!input.name) errors.name = 'Enter your name.';
@@ -197,18 +195,12 @@ window.BT = (function () {
 
     if (!/^[A-Za-z0-9_]{3,20}$/.test(input.username)) {
       errors.username = 'Use 3 to 20 letters, numbers or underscores.';
-    } else if (usernameTaken(input.username)) {
-      errors.username = 'That username is taken.';
     }
 
     const passwordError = validatePassword(input.password);
     if (passwordError) errors.password = passwordError;
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) {
-      errors.email = 'Enter a valid email address.';
-    } else if (emailTaken(input.email)) {
-      errors.email = 'That email already has an account. Sign in instead.';
-    }
+    if (!validEmail(input.email)) errors.email = 'Enter a valid email address.';
     return errors;
   }
 
@@ -218,183 +210,195 @@ window.BT = (function () {
     return null;
   }
 
+  /** Creates the sign-in account, claims the username, saves the profile and sends a verification email. */
   async function createUser(input) {
-    const user = {
-      id: makeId(),
-      name: input.name,
-      birthday: input.birthday,
-      username: input.username,
-      email: input.email,
-      password: await hashPassword(input.password),
-      verified: false,
-      profileDone: false,
-      avatar: null,
-      bio: '',
-      currency: guessCurrency(),
-      createdAt: Date.now()
-    };
-    const users = allUsers();
-    users[user.id] = user;
-    write(KEYS.users, users);
-    return user;
-  }
-
-  function updateUser(id, changes) {
-    const users = allUsers();
-    if (!users[id]) throw new UserError('This account no longer exists.');
-    Object.assign(users[id], changes);
-    write(KEYS.users, users);
-    return users[id];
-  }
-
-  function deleteUser(id) {
-    const users = allUsers();
-    delete users[id];
-    write(KEYS.users, users);
-    const codes = read(KEYS.codes, {});
-    delete codes[id + ':verify'];
-    delete codes[id + ':reset'];
-    write(KEYS.codes, codes);
-    localStorage.removeItem(KEYS.tx + id);
-    if (sessionUserId() === id) signOut();
-  }
-
-  function sessionUserId() { return read(KEYS.session, null); }
-
-  function currentUser() {
-    const id = sessionUserId();
-    return id ? getUser(id) : null;
-  }
-
-  function signIn(id) { write(KEYS.session, id); }
-
-  function signOut() { localStorage.removeItem(KEYS.session); }
-
-  /** Returns the user when the credentials are correct, otherwise null. */
-  async function checkCredentials(identifier, password) {
-    const user = findUser(identifier);
-    if (!user) return null;
-    return (await passwordMatches(password, user.password)) ? user : null;
-  }
-
-  /* ---------- One-time email codes ---------- */
-
-  function randomCode() {
-    const limit = Math.floor(0xffffffff / 1000000) * 1000000;
-    const buffer = new Uint32Array(1);
-    do { crypto.getRandomValues(buffer); } while (buffer[0] >= limit);
-    return String(buffer[0] % 1000000).padStart(6, '0');
-  }
-
-  function codeRecord(userId, purpose) {
-    return read(KEYS.codes, {})[userId + ':' + purpose] || null;
-  }
-
-  /** Creates a code and delivers it. Returns the plain code only in demo mode. */
-  async function sendCode(user, purpose) {
-    const code = randomCode();
-    const salt = toBase64(crypto.getRandomValues(new Uint8Array(16)));
-    const codes = read(KEYS.codes, {});
-    codes[user.id + ':' + purpose] = {
-      salt: salt,
-      hash: await sha256(salt + code),
-      expires: Date.now() + CODE_TTL_MS,
-      attempts: 0,
-      sentAt: Date.now()
-    };
-    write(KEYS.codes, codes);
-
-    const send = window.BudgetConfig && window.BudgetConfig.sendEmail;
-    if (typeof send !== 'function') return { demo: true, code: code };
-
-    const isReset = purpose === 'reset';
+    signUpInProgress = true;
     try {
-      await send({
-        to: user.email,
-        toName: user.name,
-        purpose: purpose,
-        code: code,
-        subject: isReset ? 'Reset your PassbookHub password' : 'Verify your PassbookHub email',
-        text: 'Your ' + (isReset ? 'password reset' : 'verification') + ' code is ' + code + '. It expires in 15 minutes.'
-      });
-    } catch (e) {
-      console.error('Email delivery failed', e);
-      throw new UserError('We could not send the email. Please try again.');
+      const taken = await F().getDoc(nameDoc(input.username)).catch(function (e) { throw friendly(e); });
+      if (taken.exists()) throw new FieldError({ username: 'That username is taken.' });
+
+      let credential;
+      try {
+        credential = await A().createUserWithEmailAndPassword(window.FB.auth, input.email, input.password);
+      } catch (error) {
+        if (error.code === 'auth/email-already-in-use') throw new FieldError({ email: 'That email already has an account. Sign in instead.' });
+        if (error.code === 'auth/invalid-email') throw new FieldError({ email: 'Enter a valid email address.' });
+        throw friendly(error);
+      }
+
+      const uid = credential.user.uid;
+      const profile = {
+        name: input.name,
+        birthday: input.birthday,
+        username: input.username,
+        profileDone: false,
+        avatar: null,
+        bio: '',
+        currency: guessCurrency(),
+        createdAt: Date.now()
+      };
+      try {
+        const batch = F().writeBatch(window.FB.db);
+        batch.set(nameDoc(input.username), { uid: uid });
+        batch.set(userDoc(uid), profile);
+        await batch.commit();
+      } catch (error) {
+        /* Someone claimed the username a moment earlier, or the network dropped. Undo the sign-in account. */
+        await credential.user.delete().catch(function () {});
+        if (error.code === 'permission-denied') throw new FieldError({ username: 'That username is taken.' });
+        throw friendly(error);
+      }
+
+      await A().updateProfile(credential.user, { displayName: input.name }).catch(function () {});
+      await sendVerification(credential.user).catch(function (e) { console.error(e); });
+      await loadSession(credential.user);
+    } finally {
+      signUpInProgress = false;
     }
-    return { demo: false };
   }
 
-  /** Returns "ok", "wrong", "expired", "locked" or "none". A code works once. */
-  async function checkCode(userId, purpose, code) {
-    const codes = read(KEYS.codes, {});
-    const key = userId + ':' + purpose;
-    const record = codes[key];
-    if (!record) return 'none';
-    if (Date.now() > record.expires) return 'expired';
-    if (record.attempts >= CODE_MAX_ATTEMPTS) return 'locked';
-    if ((await sha256(record.salt + code)) === record.hash) {
-      delete codes[key];
-      write(KEYS.codes, codes);
-      return 'ok';
+  async function updateUser(id, changes) {
+    try {
+      await F().updateDoc(userDoc(id), changes);
+    } catch (error) {
+      throw friendly(error);
     }
-    record.attempts += 1;
-    write(KEYS.codes, codes);
-    return record.attempts >= CODE_MAX_ATTEMPTS ? 'locked' : 'wrong';
+    Object.assign(cache.profile, changes);
+    return currentUser();
   }
 
-  function codeMessage(result) {
-    return {
-      wrong: 'That code is not correct.',
-      expired: 'That code has expired. Request a new one.',
-      locked: 'Too many incorrect tries. Request a new code.',
-      none: 'That code is not correct. Request a new one if you need to.'
-    }[result];
+  /** Removes a half-created account whose profile never saved, so the email can be used again. */
+  async function discardOrphan() {
+    const user = window.FB.auth.currentUser;
+    if (user) await user.delete().catch(function () { return A().signOut(window.FB.auth); });
   }
 
-  /** Sets a new password after a valid reset code. Reset codes also prove email ownership. */
-  async function resetPassword(userId, password) {
-    return updateUser(userId, { password: await hashPassword(password), verified: true });
+  /** Deletes every transaction, the profile, the username and the sign-in account. Needs the password again. */
+  async function deleteAccount(password) {
+    const user = window.FB.auth.currentUser;
+    try {
+      await A().reauthenticateWithCredential(user, A().EmailAuthProvider.credential(user.email, password));
+    } catch (error) {
+      if (['auth/invalid-credential', 'auth/wrong-password', 'auth/invalid-login-credentials'].indexOf(error.code) !== -1) {
+        throw new FieldError({ password: 'That password is not correct.' });
+      }
+      throw friendly(error);
+    }
+    try {
+      const uid = user.uid;
+      const ids = cache.txs.map(function (t) { return t.id; });
+      for (let i = 0; i < ids.length; i += 400) {
+        const batch = F().writeBatch(window.FB.db);
+        ids.slice(i, i + 400).forEach(function (id) { batch.delete(F().doc(txCol(uid), id)); });
+        await batch.commit();
+      }
+      const batch = F().writeBatch(window.FB.db);
+      if (cache.profile && cache.profile.username) batch.delete(nameDoc(cache.profile.username));
+      batch.delete(userDoc(uid));
+      await batch.commit();
+      await user.delete();
+    } catch (error) {
+      throw friendly(error);
+    }
+  }
+
+  /** Returns true when signed in. Wrong email or password returns false. */
+  async function signIn(email, password) {
+    try {
+      await A().signInWithEmailAndPassword(window.FB.auth, email, password);
+      return true;
+    } catch (error) {
+      if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email', 'auth/invalid-login-credentials'].indexOf(error.code) !== -1) return false;
+      throw friendly(error);
+    }
+  }
+
+  function signOut() { return A().signOut(window.FB.auth); }
+
+  /* ---------- Verification and password reset emails ---------- */
+
+  function lastEmailSent() {
+    try { return +sessionStorage.getItem(RESEND_KEY) || 0; } catch (e) { return 0; }
+  }
+
+  function markEmailSent() {
+    try { sessionStorage.setItem(RESEND_KEY, String(Date.now())); } catch (e) { /* cooldown just won't survive a reload */ }
+  }
+
+  async function sendVerification(authUser) {
+    try {
+      await A().sendEmailVerification(authUser || window.FB.auth.currentUser, actionSettings());
+      markEmailSent();
+    } catch (error) {
+      throw friendly(error);
+    }
+  }
+
+  /** Checks with the server whether the person has clicked the link in their email yet. */
+  async function refreshVerified() {
+    const user = window.FB.auth.currentUser;
+    if (!user) return false;
+    try { await user.reload(); } catch (error) { throw friendly(error); }
+    cache.authUser = window.FB.auth.currentUser;
+    if (user.emailVerified) await user.getIdToken(true).catch(function () {});
+    return cache.authUser.emailVerified;
+  }
+
+  /** Sends a reset link. Says nothing about whether the email has an account. */
+  async function sendPasswordReset(email) {
+    try {
+      await A().sendPasswordResetEmail(window.FB.auth, email, actionSettings());
+      markEmailSent();
+    } catch (error) {
+      if (error.code === 'auth/user-not-found') return;
+      if (error.code === 'auth/invalid-email') throw new FieldError({ email: 'Enter a valid email address.' });
+      throw friendly(error);
+    }
   }
 
   /* ---------- Transactions ---------- */
 
-  function listTx(userId) { return read(KEYS.tx + userId, []); }
+  function uid() { return cache.authUser.uid; }
 
-  function addTx(userId, tx) {
-    const list = listTx(userId);
-    const record = Object.assign({ id: makeId(), createdAt: Date.now() }, tx);
-    list.push(record);
-    write(KEYS.tx + userId, list);
+  function stripId(tx) {
+    const copy = Object.assign({}, tx);
+    delete copy.id;
+    return copy;
+  }
+
+  function listTx() { return cache.txs.slice(); }
+
+  async function addTx(tx) {
+    const ref = F().doc(txCol(uid()));
+    const record = Object.assign({ createdAt: Date.now() }, tx, { id: ref.id });
+    try { await F().setDoc(ref, stripId(record)); } catch (error) { throw friendly(error); }
+    cache.txs.push(record);
     return record;
   }
 
-  function updateTx(userId, id, changes) {
-    const list = listTx(userId);
-    const record = list.find(function (t) { return t.id === id; });
+  async function updateTx(id, changes) {
+    const record = cache.txs.find(function (t) { return t.id === id; });
     if (!record) return null;
+    try { await F().updateDoc(F().doc(txCol(uid()), id), changes); } catch (error) { throw friendly(error); }
     Object.assign(record, changes);
-    write(KEYS.tx + userId, list);
     return record;
   }
 
-  function deleteTx(userId, id) {
-    const list = listTx(userId);
-    const index = list.findIndex(function (t) { return t.id === id; });
+  async function deleteTx(id) {
+    const index = cache.txs.findIndex(function (t) { return t.id === id; });
     if (index === -1) return null;
-    const removed = list.splice(index, 1)[0];
-    write(KEYS.tx + userId, list);
-    return removed;
+    try { await F().deleteDoc(F().doc(txCol(uid()), id)); } catch (error) { throw friendly(error); }
+    return cache.txs.splice(index, 1)[0];
   }
 
-  function restoreTx(userId, tx) {
-    const list = listTx(userId);
-    list.push(tx);
-    write(KEYS.tx + userId, list);
+  async function restoreTx(tx) {
+    try { await F().setDoc(F().doc(txCol(uid()), tx.id), stripId(tx)); } catch (error) { throw friendly(error); }
+    cache.txs.push(tx);
   }
 
   /** Newest first, using entry order to break ties within a day. */
-  function monthTx(userId, month) {
-    return listTx(userId).filter(function (t) { return monthOf(t.date) === month; }).sort(function (a, b) {
+  function monthTx(month) {
+    return cache.txs.filter(function (t) { return monthOf(t.date) === month; }).sort(function (a, b) {
       return a.date === b.date ? b.createdAt - a.createdAt : (a.date < b.date ? 1 : -1);
     });
   }
@@ -451,16 +455,16 @@ window.BT = (function () {
   }
 
   return {
-    KEYS: KEYS, BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES,
+    BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES,
     RESEND_COOLDOWN_MS: RESEND_COOLDOWN_MS, MIN_AGE: MIN_AGE,
-    UserError: UserError,
-    storageAvailable: storageAvailable, cryptoAvailable: cryptoAvailable,
+    UserError: UserError, FieldError: FieldError,
     today: today, parseDate: parseDate, ageOn: ageOn, monthOf: monthOf, addMonths: addMonths,
-    monthLabel: monthLabel, shortDate: shortDate, longDate: longDate,
-    findUser: findUser, getUser: getUser, validateSignUp: validateSignUp, validatePassword: validatePassword,
-    createUser: createUser, updateUser: updateUser, deleteUser: deleteUser,
-    currentUser: currentUser, signIn: signIn, signOut: signOut, checkCredentials: checkCredentials,
-    codeRecord: codeRecord, sendCode: sendCode, checkCode: checkCode, codeMessage: codeMessage, resetPassword: resetPassword,
+    monthLabel: monthLabel, shortDate: shortDate, longDate: longDate, validEmail: validEmail,
+    onSessionChange: onSessionChange, sessionState: sessionState, currentUser: currentUser, reloadSession: reloadSession,
+    validateSignUp: validateSignUp, validatePassword: validatePassword,
+    createUser: createUser, updateUser: updateUser, deleteAccount: deleteAccount, discardOrphan: discardOrphan,
+    signIn: signIn, signOut: signOut,
+    sendVerification: sendVerification, refreshVerified: refreshVerified, sendPasswordReset: sendPasswordReset, lastEmailSent: lastEmailSent,
     listTx: listTx, addTx: addTx, updateTx: updateTx, deleteTx: deleteTx, restoreTx: restoreTx, monthTx: monthTx,
     summarize: summarize, bucketStatus: bucketStatus, formatMoney: formatMoney, toCsv: toCsv
   };

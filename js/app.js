@@ -10,7 +10,6 @@
     filter: 'all',
     txType: 'needs',
     editingId: null,
-    demoCode: null,     // { userId, purpose, code }: demo mode only, never saved
     notice: null,
     resetEmail: null,
     refreshDashboard: null
@@ -158,7 +157,10 @@
       await action();
     } catch (error) {
       if (!(error instanceof BT.UserError)) console.error(error);
-      if (form.isConnected) {
+      if (error instanceof BT.FieldError && form.isConnected &&
+          Object.keys(error.fields).every(function (name) { return form.elements[name]; })) {
+        showErrors(form, error.fields);
+      } else if (form.isConnected) {
         showErrors(form, { _form: error instanceof BT.UserError ? error.message : 'Something went wrong. Please try again.' });
       } else {
         toast(error instanceof BT.UserError ? error.message : 'Something went wrong. Please try again.');
@@ -186,6 +188,9 @@
 
   function resolveView() {
     const wanted = location.hash.slice(1);
+    const session = BT.sessionState();
+    if (session === 'error') return 'offline';
+    if (session === 'orphan') return 'orphan';
     const user = BT.currentUser();
     if (!user) return ['signin', 'signup', 'forgot'].indexOf(wanted) !== -1 ? wanted : 'signin';
     if (!user.verified) return 'verify';
@@ -200,7 +205,9 @@
     verify: { title: 'Verify your email', render: viewVerify },
     setup: { title: 'Set up your profile', render: viewSetup },
     dashboard: { title: 'Dashboard', render: viewDashboard },
-    profile: { title: 'Profile', render: viewProfile }
+    profile: { title: 'Profile', render: viewProfile },
+    offline: { title: 'Could not load', render: viewOffline },
+    orphan: { title: 'Finish signing up', render: viewOrphan }
   };
 
   function render() {
@@ -243,26 +250,24 @@
       novalidate: true,
       onsubmit: function (event) {
         event.preventDefault();
-        const identifier = form.elements.identifier.value.trim();
+        const email = form.elements.email.value.trim().toLowerCase();
         const password = form.elements.password.value;
         const errors = {};
-        if (!identifier) errors.identifier = 'Enter your username or email.';
+        if (!BT.validEmail(email)) errors.email = 'Enter your email address.';
         if (!password) errors.password = 'Enter your password.';
         if (Object.keys(errors).length) return showErrors(form, errors);
         busy(form, 'Signing in…', async function () {
-          const user = await BT.checkCredentials(identifier, password);
-          if (!user) {
+          const ok = await BT.signIn(email, password);
+          if (!ok) {
             form.elements.password.value = '';
-            showErrors(form, { _form: 'Incorrect username, email or password.' });
+            showErrors(form, { _form: 'Incorrect email or password.' });
             form.elements.password.focus();
-            return;
           }
-          BT.signIn(user.id);
-          render();
+          /* On success the session listener loads the account and redraws. */
         });
       }
     },
-      field({ name: 'identifier', label: 'Username or email', attrs: { autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false' } }),
+      field({ name: 'email', label: 'Email', type: 'email', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false' } }),
       field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'current-password' } }),
       formError(),
       h('button', { class: 'btn primary full', type: 'submit' }, 'Sign in'),
@@ -286,8 +291,7 @@
         const errors = BT.validateSignUp(input, BT.today());
         if (Object.keys(errors).length) return showErrors(form, errors);
         busy(form, 'Creating account…', async function () {
-          const user = await BT.createUser(input);
-          BT.signIn(user.id);
+          await BT.createUser(input);
           render();
         });
       }
@@ -302,133 +306,86 @@
     return form;
   }
 
-  /* ---------- Email codes ---------- */
+  /* ---------- Emails ---------- */
 
-  async function issueCode(user, purpose) {
-    const result = await BT.sendCode(user, purpose);
-    state.demoCode = result.demo ? { userId: user.id, purpose: purpose, code: result.code } : null;
-    return result;
-  }
-
-  function demoMailBox(holder, user, purpose) {
-    const demo = state.demoCode;
-    holder.replaceChildren();
-    if (demo && demo.userId === user.id && demo.purpose === purpose) {
-      holder.appendChild(h('div', { class: 'demo-mail' },
-        'Email sending is not set up yet, so here is your code:',
-        h('strong', null, demo.code)));
-    }
-  }
-
-  /** A resend button that waits out the cooldown, counted from when the last code was sent. */
-  function resendButton(user, purpose, onSent, onError) {
-    const button = h('button', { type: 'button', class: 'link flush' }, 'Send a new code');
+  /** A button that sends an email, then waits out a cooldown counted from the last email sent. */
+  function cooldownButton(label, send) {
+    const button = h('button', { type: 'button', class: 'link flush' }, label);
     let timer = null;
 
     function tick() {
       if (!button.isConnected && timer) { clearInterval(timer); timer = null; return; }
-      const record = BT.codeRecord(user.id, purpose);
-      const wait = record ? record.sentAt + BT.RESEND_COOLDOWN_MS - Date.now() : 0;
+      const wait = BT.lastEmailSent() + BT.RESEND_COOLDOWN_MS - Date.now();
       if (wait > 0) {
         button.disabled = true;
-        button.textContent = 'Send a new code in ' + Math.ceil(wait / 1000) + 's';
+        button.textContent = label + ' in ' + Math.ceil(wait / 1000) + 's';
+        if (!timer) timer = setInterval(tick, 1000);
       } else {
         button.disabled = false;
-        button.textContent = 'Send a new code';
+        button.textContent = label;
         if (timer) { clearInterval(timer); timer = null; }
       }
-    }
-
-    function start() {
-      tick();
-      if (!timer && button.disabled) timer = setInterval(tick, 1000);
     }
 
     button.addEventListener('click', async function () {
       button.disabled = true;
       try {
-        await issueCode(user, purpose);
-        onSent();
+        await send();
       } catch (error) {
-        onError(error);
+        toast(error instanceof BT.UserError ? error.message : 'We could not send the email. Please try again.');
       }
-      start();
+      tick();
     });
-    button.startCooldown = start;
-    start();
+    tick();
     return button;
   }
 
   function viewVerify() {
     const user = BT.currentUser();
-    const demoHolder = h('div');
     const form = h('form', {
       class: 'stack',
       novalidate: true,
       onsubmit: function (event) {
         event.preventDefault();
-        const code = form.elements.code.value.trim();
-        if (!/^\d{6}$/.test(code)) return showErrors(form, { code: 'Enter the 6-digit code.' });
         busy(form, 'Checking…', async function () {
-          const result = await BT.checkCode(user.id, 'verify', code);
-          if (result !== 'ok') return showErrors(form, { code: BT.codeMessage(result) });
-          BT.updateUser(user.id, { verified: true });
-          state.demoCode = null;
+          const verified = await BT.refreshVerified();
+          if (!verified) {
+            showErrors(form, { _form: 'Your email is not verified yet. Open the link in the email we sent, then try again.' });
+            return;
+          }
+          toast('Email verified.');
           render();
         });
       }
     },
-      demoHolder,
-      field({
-        name: 'code',
-        label: 'Verification code',
-        attrs: { class: 'code-input', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 6 }
-      }),
       formError(),
-      h('button', { class: 'btn primary full', type: 'submit' }, 'Verify email'));
+      h('button', { class: 'btn primary full', type: 'submit' }, 'I have verified my email'));
 
-    const resend = resendButton(user, 'verify', function () {
-      demoMailBox(demoHolder, user, 'verify');
-      toast('New code sent.');
-    }, function (error) {
-      showErrors(form, { _form: error.message });
+    const resend = cooldownButton('Send the link again', async function () {
+      await BT.sendVerification();
+      toast('Verification email sent.');
     });
 
-    /* Send a code on arrival, unless a usable one was already emailed. In demo
-       mode the plain code lives only in memory, so a reload needs a new one. */
-    const record = BT.codeRecord(user.id, 'verify');
-    const usable = record && Date.now() < record.expires && record.attempts < 5;
-    const haveDemo = state.demoCode && state.demoCode.userId === user.id && state.demoCode.purpose === 'verify';
-    const isDemo = typeof (window.BudgetConfig || {}).sendEmail !== 'function';
-    if (!usable || (isDemo && !haveDemo)) {
-      issueCode(user, 'verify').then(function () {
-        demoMailBox(demoHolder, user, 'verify');
-        resend.startCooldown();
-      }).catch(function (error) {
-        showErrors(form, { _form: error.message });
-      });
-    } else {
-      demoMailBox(demoHolder, user, 'verify');
+    /* Coming back to this tab after clicking the link checks again on its own. */
+    function onFocus() {
+      if (!form.isConnected) { window.removeEventListener('focus', onFocus); return; }
+      BT.refreshVerified().then(function (verified) { if (verified && form.isConnected) render(); }).catch(function () {});
     }
+    window.addEventListener('focus', onFocus);
 
     return h('div', { class: 'narrow' },
       h('span', { class: 'brand step-brand' }, 'PassbookHub'),
       h('header', { class: 'intro' },
         h('h1', null, 'Verify your email'),
-        h('p', { class: 'muted' }, 'Enter the 6-digit code for ' + user.email + '. It expires in 15 minutes.')),
+        h('p', { class: 'muted' }, 'We sent a link to ' + user.email + '. Open it to verify your account, then come back here. Check your spam folder if you do not see it.')),
       form,
       h('div', { class: 'stack small', style: 'margin-top:1.25rem' },
         h('p', null, resend),
         h('p', null, h('button', {
           type: 'button',
           class: 'link flush',
-          onclick: function () {
-            BT.deleteUser(user.id);
-            state.demoCode = null;
-            location.hash = '#signup';
-            render();
-          }
-        }, 'Wrong email? Start over'))));
+          onclick: function () { BT.signOut(); }
+        }, 'Use a different account'))));
   }
 
   /* ---------- Forgot password ---------- */
@@ -438,75 +395,40 @@
     const header = h('p', { class: 'muted' });
 
     function showRequest() {
-      header.textContent = 'Passwords are stored encrypted, so we cannot show you your old one. We can email you a code to set a new one.';
+      header.textContent = 'Passwords are stored encrypted, so we cannot show you your old one. We can email you a link to set a new one.';
       const form = h('form', {
         class: 'stack',
         novalidate: true,
         onsubmit: function (event) {
           event.preventDefault();
           const email = form.elements.email.value.trim().toLowerCase();
-          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showErrors(form, { email: 'Enter a valid email address.' });
+          if (!BT.validEmail(email)) return showErrors(form, { email: 'Enter a valid email address.' });
           busy(form, 'Sending…', async function () {
-            const user = BT.findUser(email);
-            state.demoCode = null;
-            if (user && user.email === email) await issueCode(user, 'reset');
+            await BT.sendPasswordReset(email);
             state.resetEmail = email;
-            showReset();
+            showSent();
           });
         }
       },
         field({ name: 'email', label: 'Email', type: 'email', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false' } }),
         formError(),
-        h('button', { class: 'btn primary full', type: 'submit' }, 'Send reset code'));
+        h('button', { class: 'btn primary full', type: 'submit' }, 'Send reset link'));
       content.replaceChildren(form);
     }
 
-    function showReset() {
+    function showSent() {
       const email = state.resetEmail;
-      const user = BT.findUser(email);
-      header.textContent = 'If ' + email + ' has an account, a reset code is on its way. Enter it below with your new password.';
-      const demoHolder = h('div');
-      if (user) demoMailBox(demoHolder, user, 'reset');
-
-      const form = h('form', {
-        class: 'stack',
-        novalidate: true,
-        onsubmit: function (event) {
-          event.preventDefault();
-          const code = form.elements.code.value.trim();
-          const password = form.elements.password.value;
-          const errors = {};
-          if (!/^\d{6}$/.test(code)) errors.code = 'Enter the 6-digit code.';
-          const passwordError = BT.validatePassword(password);
-          if (passwordError) errors.password = passwordError;
-          if (Object.keys(errors).length) return showErrors(form, errors);
-          busy(form, 'Saving…', async function () {
-            const result = user ? await BT.checkCode(user.id, 'reset', code) : 'none';
-            if (result !== 'ok') return showErrors(form, { code: BT.codeMessage(result) });
-            await BT.resetPassword(user.id, password);
-            state.demoCode = null;
-            state.resetEmail = null;
-            state.notice = 'Your password has been updated. Sign in with your new password.';
-            location.hash = '#signin';
-          });
-        }
-      },
-        demoHolder,
-        field({ name: 'code', label: 'Reset code', attrs: { class: 'code-input', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 6 } }),
-        field({ name: 'password', label: 'New password', type: 'password', hint: 'At least 8 characters.', attrs: { autocomplete: 'new-password', maxlength: 128 } }),
-        formError(),
-        h('button', { class: 'btn primary full', type: 'submit' }, 'Set new password'));
-
-      const again = user
-        ? resendButton(user, 'reset', function () { demoMailBox(demoHolder, user, 'reset'); toast('New code sent.'); },
-            function (error) { showErrors(form, { _form: error.message }); })
-        : h('button', { type: 'button', class: 'link flush', onclick: showRequest }, 'Use a different email');
-
-      content.replaceChildren(form, h('p', { class: 'small', style: 'margin-top:1.25rem' }, again));
-      form.elements.code.focus();
+      header.textContent = 'If ' + email + ' has an account, a reset link is on its way. Open it to choose a new password, then sign in. Check your spam folder if you do not see it.';
+      const again = cooldownButton('Send the link again', async function () {
+        await BT.sendPasswordReset(email);
+        toast('Reset email sent.');
+      });
+      content.replaceChildren(h('div', { class: 'stack small' },
+        h('p', null, again),
+        h('p', null, h('button', { type: 'button', class: 'link flush', onclick: function () { state.resetEmail = null; showRequest(); } }, 'Use a different email'))));
     }
 
-    if (state.resetEmail) showReset();
+    if (state.resetEmail) showSent();
     else showRequest();
 
     return h('div', { class: 'narrow' },
@@ -514,7 +436,45 @@
       h('header', { class: 'intro' }, h('h1', null, 'Reset your password'), header),
       content,
       h('p', { class: 'small', style: 'margin-top:1rem' },
-        h('a', { href: '#signin', onclick: function () { state.resetEmail = null; state.demoCode = null; } }, 'Back to sign in')));
+        h('a', { href: '#signin', onclick: function () { state.resetEmail = null; } }, 'Back to sign in')));
+  }
+
+  /* ---------- Problems loading an account ---------- */
+
+  function viewOffline() {
+    return h('div', { class: 'narrow' },
+      h('span', { class: 'brand step-brand' }, 'PassbookHub'),
+      h('header', { class: 'intro' },
+        h('h1', null, 'We could not load your account'),
+        h('p', { class: 'muted' }, 'Check your internet connection, then try again.')),
+      h('div', { class: 'row' },
+        h('button', {
+          type: 'button',
+          class: 'btn primary',
+          onclick: async function (event) {
+            event.currentTarget.disabled = true;
+            await BT.reloadSession();
+            render();
+          }
+        }, 'Try again'),
+        h('button', { type: 'button', class: 'link', onclick: function () { BT.signOut(); } }, 'Sign out')));
+  }
+
+  function viewOrphan() {
+    return h('div', { class: 'narrow' },
+      h('span', { class: 'brand step-brand' }, 'PassbookHub'),
+      h('header', { class: 'intro' },
+        h('h1', null, 'Your sign-up did not finish'),
+        h('p', { class: 'muted' }, 'Your account was created but your profile was not saved. Start over to sign up again with the same email.')),
+      h('button', {
+        type: 'button',
+        class: 'btn primary',
+        onclick: async function (event) {
+          event.currentTarget.disabled = true;
+          await BT.discardOrphan();
+          location.hash = '#signup';
+        }
+      }, 'Start over'));
   }
 
   /* ---------- Profile picture and bio ---------- */
@@ -618,7 +578,7 @@
       onsubmit: function (event) {
         event.preventDefault();
         busy(form, 'Saving…', async function () {
-          BT.updateUser(user.id, { avatar: fields.data.picture, bio: fields.bio.value.trim(), profileDone: true });
+          await BT.updateUser(user.id, { avatar: fields.data.picture, bio: fields.bio.value.trim(), profileDone: true });
           render();
         });
       }
@@ -631,9 +591,9 @@
         h('button', {
           type: 'button',
           class: 'link',
-          onclick: function () {
+          onclick: async function () {
             try {
-              BT.updateUser(user.id, { profileDone: true });
+              await BT.updateUser(user.id, { profileDone: true });
               render();
             } catch (error) {
               showErrors(form, { _form: error.message });
@@ -667,7 +627,7 @@
         const name = nameControl.value.trim().replace(/\s+/g, ' ');
         if (!name) return showErrors(form, { name: 'Enter your name.' });
         busy(form, 'Saving…', async function () {
-          BT.updateUser(user.id, { name: name, avatar: fields.data.picture, bio: fields.bio.value.trim(), currency: currency.value });
+          await BT.updateUser(user.id, { name: name, avatar: fields.data.picture, bio: fields.bio.value.trim(), currency: currency.value });
           toast('Profile saved.');
           location.hash = '#dashboard';
         });
@@ -688,20 +648,28 @@
     }
     function showConfirm() {
       const cancel = h('button', { type: 'button', class: 'btn', onclick: function () { showDelete(); dangerBox.querySelector('button').focus(); } }, 'Keep account');
-      dangerBox.replaceChildren(
-        h('p', { class: 'small', style: 'margin-bottom:0.75rem' }, 'This permanently deletes your profile and every transaction from this browser.'),
+      const confirmForm = h('form', {
+        class: 'stack',
+        novalidate: true,
+        onsubmit: function (event) {
+          event.preventDefault();
+          const password = confirmForm.elements.password.value;
+          if (!password) return showErrors(confirmForm, { password: 'Enter your password.' });
+          busy(confirmForm, 'Deleting…', async function () {
+            await BT.deleteAccount(password);
+            state.notice = 'Your account has been deleted.';
+            location.hash = '#signin';
+          });
+        }
+      },
+        h('p', { class: 'small' }, 'This permanently deletes your profile and every transaction. Enter your password to confirm.'),
+        field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'current-password' } }),
+        formError(),
         h('div', { class: 'row' },
-          h('button', {
-            type: 'button',
-            class: 'btn danger',
-            onclick: function () {
-              BT.deleteUser(user.id);
-              state.notice = 'Your account has been deleted.';
-              location.hash = '#signin';
-            }
-          }, 'Yes, delete everything'),
+          h('button', { type: 'submit', class: 'btn danger' }, 'Yes, delete everything'),
           cancel));
-      cancel.focus();
+      dangerBox.replaceChildren(confirmForm);
+      confirmForm.elements.password.focus();
     }
     showDelete();
 
@@ -729,11 +697,10 @@
           type: 'button',
           class: 'link',
           onclick: function () {
-            BT.signOut();
-            state.demoCode = null;
             toastBox.hidden = true;
             state.notice = 'You have signed out.';
             location.hash = '#signin';
+            BT.signOut();
           }
         }, 'Sign out')));
   }
@@ -804,7 +771,7 @@
       return BT.monthOf(now) === state.month ? now : state.month + '-01';
     }
 
-    function saveEntry() {
+    async function saveEntry() {
       const desc = form.elements.desc.value.trim();
       const raw = form.elements.amount.value;
       const date = form.elements.date.value;
@@ -817,17 +784,21 @@
       if (Object.keys(errors).length) return showErrors(form, errors);
 
       const entry = { type: state.txType, desc: desc, cents: cents, date: date };
+      if (submitButton.disabled) return;
+      submitButton.disabled = true;
       try {
         if (state.editingId) {
-          BT.updateTx(user.id, state.editingId, entry);
+          await BT.updateTx(state.editingId, entry);
           toast('Entry updated.');
         } else {
-          BT.addTx(user.id, entry);
+          await BT.addTx(entry);
           const label = BT.TYPE_LABELS[entry.type];
           toast(label + ' entry added' + (BT.monthOf(date) !== state.month ? ' to ' + BT.monthLabel(BT.monthOf(date)) : '') + '.');
         }
       } catch (error) {
         return showErrors(form, { _form: error instanceof BT.UserError ? error.message : 'We could not save this entry.' });
+      } finally {
+        submitButton.disabled = false;
       }
       resetForm(BT.monthOf(date));
       form.elements.desc.focus();
@@ -870,16 +841,25 @@
       form.elements.desc.focus();
     }
 
-    function removeEntry(tx) {
-      const removed = BT.deleteTx(user.id, tx.id);
+    async function removeEntry(tx) {
+      let removed;
+      try {
+        removed = await BT.deleteTx(tx.id);
+      } catch (error) {
+        toast(error instanceof BT.UserError ? error.message : 'We could not delete this entry.');
+        return;
+      }
       if (!removed) return;
       if (state.editingId === tx.id) resetForm();
       else drawAll();
       toast('Entry deleted.', {
         label: 'Undo',
         run: function () {
-          BT.restoreTx(user.id, removed);
-          if (state.refreshDashboard) state.refreshDashboard();
+          BT.restoreTx(removed).then(function () {
+            if (state.refreshDashboard) state.refreshDashboard();
+          }).catch(function (error) {
+            toast(error instanceof BT.UserError ? error.message : 'We could not restore this entry.');
+          });
         }
       });
     }
@@ -954,7 +934,7 @@
     /* ---- List ---- */
 
     function drawList() {
-      const all = BT.monthTx(user.id, state.month);
+      const all = BT.monthTx(state.month);
       const rows = state.filter === 'all' ? all : all.filter(function (t) { return t.type === state.filter; });
       if (!rows.length) {
         listBox.replaceChildren(h('p', { class: 'empty' }, all.length ? 'No entries in this category.' : 'No entries for ' + BT.monthLabel(state.month) + ' yet.'));
@@ -977,7 +957,7 @@
     function drawAll() {
       monthHeading.textContent = BT.monthLabel(state.month);
       thisMonth.hidden = state.month === BT.monthOf(BT.today());
-      drawSummary(BT.monthTx(user.id, state.month));
+      drawSummary(BT.monthTx(state.month));
       drawList();
     }
 
@@ -991,7 +971,7 @@
     }
 
     function exportCsv() {
-      const blob = new Blob(['﻿' + BT.toCsv(BT.listTx(user.id))], { type: 'text/csv;charset=utf-8' });
+      const blob = new Blob(['﻿' + BT.toCsv(BT.listTx())], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = h('a', { href: url, download: 'passbookhub-' + BT.today() + '.csv' });
       document.body.appendChild(link);
@@ -1027,26 +1007,12 @@
             h('button', { type: 'button', class: 'link', onclick: exportCsv }, 'Export CSV'),
             filter)),
         listBox),
-      h('p', { class: 'footnote' }, 'Your data is stored only in this browser. Export a copy now and then, because clearing browser data erases it.'));
+      h('p', { class: 'footnote' }, 'Your data is saved to your account, so you can sign in from any device.'));
   }
 
   /* ---------- Start ---------- */
 
-  function fatal(message) {
-    root.replaceChildren(h('div', { class: 'narrow' },
-      h('h1', { style: 'margin-bottom:0.5rem' }, 'PassbookHub'),
-      h('p', null, message)));
-  }
-
-  if (!BT.storageAvailable()) {
-    fatal('This site saves your data in your browser, but browser storage is turned off here. Turn it on or leave private browsing, then reload.');
-  } else if (!BT.cryptoAvailable()) {
-    fatal('This browser cannot encrypt passwords on this connection. Open the site from a local file or over HTTPS.');
-  } else {
-    window.addEventListener('hashchange', render);
-    window.addEventListener('storage', function (event) {
-      if (event.key === BT.KEYS.session) render();
-    });
-    render();
-  }
+  root.replaceChildren(h('div', { class: 'narrow' }, h('p', { class: 'muted', role: 'status' }, 'Loading…')));
+  window.addEventListener('hashchange', function () { if (state.view !== null) render(); });
+  BT.onSessionChange(render);
 })();
