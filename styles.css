@@ -1703,3 +1703,27 @@ button.note-bubble:hover { transform: translateY(-1px); }
 .note-gif-row { display: flex; align-items: center; gap: 0.75rem; }
 .note-gif-btn { display: inline-flex; align-items: center; gap: 0.375rem; cursor: pointer; }
 .gif-tag { padding: 0 0.3rem; border-radius: 4px; background: var(--accent); color: #fffffa; font-size: 0.625rem; font-weight: 800; letter-spacing: 0.04em; }
+
+/* ---------- Sidebar: profile via your picture, online count ---------- */
+.sidebar-me[aria-current="page"] { background: var(--wash); box-shadow: inset 3px 0 0 var(--accent); }
+.sidebar-online {
+  margin-top: auto; display: flex; align-items: center; gap: 0.5rem; padding: 0.625rem 0.75rem;
+  border: 1px solid var(--line); border-radius: 12px; font-size: 0.875rem; color: var(--ink-2); cursor: default;
+}
+.sidebar-online strong { color: var(--ink); }
+.online-dot { width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--line-strong); flex: none; }
+.online-dot.on { background: #2ecc71; box-shadow: 0 0 0 3px color-mix(in srgb, #2ecc71 25%, transparent); }
+@media (min-width: 761px) {
+  .collapsed .sidebar-online { display: none; }
+  .collapsed .sidebar-me[aria-current="page"] { box-shadow: 0 0 0 2px var(--accent); }
+}
+@media (max-width: 760px) {
+  .sidebar-online { display: none; }
+  .sidebar-me { display: flex !important; flex: none; padding: 0.25rem; order: 0; }
+  .sidebar-me .sidebar-me-text { display: none; }
+  .sidebar-me[aria-current="page"] { box-shadow: 0 0 0 2px var(--accent); border-radius: 50%; }
+}
+
+/* ---------- Circle: uncircle and block icons ---------- */
+.person-actions { display: flex; align-items: center; gap: 0.375rem; }
+.danger-icon:hover { color: var(--critical-ink) !important; background: color-mix(in srgb, var(--critical) 12%, transparent) !important; }

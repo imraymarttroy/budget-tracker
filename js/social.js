@@ -234,6 +234,7 @@ window.SOC = (function () {
 
   /** Matches the start of a name or username. Returns up to 20 people, never yourself. */
   async function search(text) {
+    const blocked = await blockedIds().catch(function () { return {}; });
     const term = text.trim().toLowerCase().replace(/^@/, '');
     if (!term) return [];
     const col = F().collection(db(), 'profiles');
@@ -245,7 +246,7 @@ window.SOC = (function () {
     const people = [];
     results.forEach(function (snap) {
       snap.docs.forEach(function (d) {
-        if (seen[d.id] || d.id === me()) return;
+        if (seen[d.id] || d.id === me() || blocked[d.id]) return;
         seen[d.id] = true;
         profileCache[d.id] = Object.assign({ id: d.id }, d.data());
         people.push(profileCache[d.id]);
@@ -255,6 +256,75 @@ window.SOC = (function () {
   }
 
   /* ---------- Circle ---------- */
+
+  /* ---------- Blocking: profiles/{me}/blocked/{uid}. Only you can read your list. ----------
+     A blocked person leaves your circle, no longer shows in your search, and can't send you a circle request. */
+
+  const blockedDoc = function (uid) { return F().doc(db(), 'profiles', me(), 'blocked', uid); };
+  let blockedCache = null;
+
+  async function blockedList() {
+    const snap = await run(function () { return F().getDocs(F().collection(db(), 'profiles', me(), 'blocked')); });
+    const list = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }).sort(function (a, b) { return b.at - a.at; });
+    blockedCache = {};
+    list.forEach(function (b) { blockedCache[b.id] = true; });
+    return list;
+  }
+  async function blockedIds() {
+    if (!blockedCache) await blockedList();
+    return blockedCache;
+  }
+
+  async function blockPerson(person) {
+    const batch = F().writeBatch(db());
+    batch.set(blockedDoc(person.id), { at: Date.now(), name: String(person.name || '').slice(0, 60), username: String(person.username || '').slice(0, 20) });
+    batch.delete(circleDoc(me(), person.id));
+    batch.delete(circleDoc(person.id, me()));
+    batch.delete(requestDoc(me(), person.id));
+    batch.delete(requestDoc(person.id, me()));
+    await run(function () { return batch.commit(); });
+    if (blockedCache) blockedCache[person.id] = true;
+  }
+
+  async function unblockPerson(uid) {
+    await run(function () { return F().deleteDoc(blockedDoc(uid)); });
+    if (blockedCache) delete blockedCache[uid];
+  }
+
+  /* ---------- Online: presence/{uid} = { at }, refreshed every minute while the app is open ---------- */
+
+  const ONLINE_WINDOW = 3 * 60 * 1000;
+  let presenceTimer = null;
+  const presenceDoc = function (uid) { return F().doc(db(), 'presence', uid); };
+
+  function startPresence() {
+    stopPresence();
+    if (!me()) return;
+    function beat() {
+      if (document.visibilityState === 'visible' && me()) F().setDoc(presenceDoc(me()), { at: Date.now() }).catch(function () {});
+    }
+    beat();
+    presenceTimer = setInterval(beat, 60 * 1000);
+    document.addEventListener('visibilitychange', beat);
+    startPresence.beat = beat;
+  }
+  function stopPresence() {
+    if (presenceTimer) clearInterval(presenceTimer);
+    presenceTimer = null;
+    if (startPresence.beat) document.removeEventListener('visibilitychange', startPresence.beat);
+  }
+
+  /** People in your circle who were active in the last few minutes. */
+  async function onlineCircle() {
+    const people = await circleMembers();
+    const now = Date.now();
+    const checks = await Promise.all(people.map(function (p) {
+      return F().getDoc(presenceDoc(p.id)).then(function (snap) {
+        return snap.exists() && now - (snap.data().at || 0) < ONLINE_WINDOW ? p : null;
+      }).catch(function () { return null; });
+    }));
+    return checks.filter(Boolean);
+  }
 
   /** "self", "circle", "sent" (you asked them), "received" (they asked you) or "none". */
   async function relation(uid) {
@@ -759,6 +829,9 @@ window.SOC = (function () {
     lists[1].docs.forEach(function (d) { refs.push(circleDoc(d.id, uid)); });
     refs.push(profileDoc(uid));
     refs.push(trustDoc(uid));
+    refs.push(presenceDoc(uid));
+    const myBlocks = await run(function () { return F().getDocs(F().collection(db(), 'profiles', uid, 'blocked')); });
+    myBlocks.docs.forEach(function (d) { refs.push(d.ref); });
     refs.push(coverDoc(uid));
     refs.push(circleInfoDoc(uid));
     refs.push(noteDoc(uid));
@@ -785,6 +858,7 @@ window.SOC = (function () {
     stopWatching();
     stopWatchingChats();
     stopWatchingTrust();
+    stopPresence();
   }
 
   return {
@@ -799,6 +873,8 @@ window.SOC = (function () {
     watchNotifications: watchNotifications, stopWatching: stopWatching, onNotifications: onNotifications,
     notifications: notifications, unreadCount: unreadCount, markAllRead: markAllRead, dismissNotification: dismissNotification,
     deleteEverything: deleteEverything,
+    blockedList: blockedList, blockPerson: blockPerson, unblockPerson: unblockPerson,
+    startPresence: startPresence, stopPresence: stopPresence, onlineCircle: onlineCircle,
     loadCircleInfo: loadCircleInfo, ensureDefaultCircleInfo: ensureDefaultCircleInfo, saveCircleInfo: saveCircleInfo, publishSavings: publishSavings, savingsTotal: savingsTotal,
     NOTE_MAX: NOTE_MAX, NOTE_GIF_MAX: NOTE_GIF_MAX, loadNote: loadNote, saveNote: saveNote, deleteNote: deleteNote,
     loadCover: loadCover, EDU_MAX: EDU_MAX, WORK_MAX: WORK_MAX, COVER_MAX: COVER_MAX, saveProfileExtras: saveProfileExtras, loadProfile: loadProfile, feedPosts: feedPosts,
