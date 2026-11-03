@@ -301,75 +301,28 @@
 
   /* ---------- Language picker (sign in / sign up footer) ---------- */
 
-  const LANG_REGIONS = [
-    ['all', 'All Languages'], ['A', 'Africa and Middle East'], ['M', 'Americas'],
-    ['P', 'Asia-Pacific'], ['E', 'Eastern Europe'], ['W', 'Western Europe']
-  ];
-  const LANG_SUGGESTED = ['English (US)', 'Filipino', 'Bisaya', 'Espa\u00f1ol'];
-  /* Native name and region code. Order is how they appear in the list. */
-  const LANGUAGES = ('Af-Soomaali:A|Afrikaans:A|Az\u0259rbaycan dili:E|Bahasa Indonesia:P|Bahasa Melayu:P|Basa Jawa:P|Bisaya:P|Bosanski:E|Brezhoneg:W|' +
-    'Catal\u00e0:W|\u010ce\u0161tina:E|Corsu:W|Cymraeg:W|Dansk:W|Deutsch:W|Eesti:E|English (UK):W|English (US):M|Espa\u00f1ol:M|Espa\u00f1ol (Espa\u00f1a):W|' +
-    'Esperanto:W|Euskara:W|Filipino:P|F\u00f8royskt:W|Fran\u00e7ais (Canada):M|Fran\u00e7ais (France):W|Frysk:W|Fula:A|Furlan:W|Gaeilge:W|Galego:W|' +
-    'Guarani:M|Hausa:A|Hrvatski:E|Ikinyarwanda:A|Inuktitut:M|I\u00f1upiatun:M|\u00cdslenska:W|Italiano:W|Kiswahili:A|Krey\u00f2l Ayisyen:M|' +
-    'Kurd\u00ee (Kurmanc\u00ee):A|Latvie\u0161u:E|Lietuvi\u0173:E|Magyar:E|Malagasy:A|Malti:W|Nederlands:W|Norsk (bokm\u00e5l):W|Norsk (nynorsk):W|' +
-    'O\u2019zbek:E|Polski:E|Portugu\u00eas (Brasil):M|Portugu\u00eas (Portugal):W|Rom\u00e2n\u0103:E|Sardu:W|Shona:A|Shqip:E|\u015al\u014dnsk\u014f g\u014fdka:E|' +
-    'Sloven\u010dina:E|Sloven\u0161\u010dina:E|Suomi:W|Svenska:W|Ti\u1ebfng Vi\u1ec7t:P|T\u00fcrk\u00e7e:E|Vlaams:W|Zaza:A|\u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac:W|' +
-    '\u0411\u0435\u043b\u0430\u0440\u0443\u0441\u043a\u0430\u044f:E|\u0411\u044a\u043b\u0433\u0430\u0440\u0441\u043a\u0438:E|\u041a\u044b\u0440\u0433\u044b\u0437\u0447\u0430:P|\u049a\u0430\u0437\u0430\u049b\u0448\u0430:P|' +
-    '\u041c\u0430\u043a\u0435\u0434\u043e\u043d\u0441\u043a\u0438:E|\u041c\u043e\u043d\u0433\u043e\u043b:P|\u0420\u0443\u0441\u0441\u043a\u0438\u0439:E|\u0421\u0440\u043f\u0441\u043a\u0438:E|' +
-    '\u0422\u0430\u0442\u0430\u0440\u0447\u0430:E|\u0422\u043e\u04b7\u0438\u043a\u04e3:P|\u0423\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430:E|\u10e5\u10d0\u10e0\u10d7\u10e3\u10da\u10d8:E|' +
-    '\u0540\u0561\u0575\u0565\u0580\u0565\u0576:E|\u05e2\u05d1\u05e8\u05d9\u05ea:A|\u0627\u0631\u062f\u0648:P|\u0627\u0644\u0639\u0631\u0628\u064a\u0629:A|\u067e\u069a\u062a\u0648:P|\u0641\u0627\u0631\u0633\u06cc:A|' +
-    '\u06a9\u0648\u0631\u062f\u06cc\u06cc \u0646\u0627\u0648\u06d5\u0646\u062f\u06cc:A|\u2d5c\u2d30\u2d4e\u2d30\u2d63\u2d49\u2d56\u2d5c:A|\u12a0\u121b\u122d\u129b:A|' +
-    '\u0928\u0947\u092a\u093e\u0932\u0940:P|\u092e\u0930\u093e\u0920\u0940:P|\u0939\u093f\u0928\u094d\u0926\u0940:P|\u0985\u09b8\u09ae\u09c0\u09af\u09bc\u09be:P|\u09ac\u09be\u0982\u09b2\u09be:P|' +
-    '\u0a2a\u0a70\u0a1c\u0a3e\u0a2c\u0a40:P|\u0a97\u0ac1\u0a9c\u0ab0\u0abe\u0aa4\u0ac0:P|\u0b13\u0b21\u0b3c\u0b3f\u0b06:P|\u0ba4\u0bae\u0bbf\u0bb4\u0bcd:P|\u0c24\u0c46\u0c32\u0c41\u0c17\u0c41:P|' +
-    '\u0c95\u0ca8\u0ccd\u0ca8\u0ca1:P|\u0d2e\u0d32\u0d2f\u0d3e\u0d33\u0d02:P|\u0dc3\u0dd2\u0d82\u0dc4\u0dbd:P|\u0e20\u0e32\u0e29\u0e32\u0e44\u0e17\u0e22:P|\u0e9e\u0eb2\u0eaa\u0eb2\u0ea5\u0eb2\u0ea7:P|' +
-    '\u1019\u103c\u1014\u103a\u1019\u102c\u1018\u102c\u101e\u102c:P|\u1797\u17b6\u179f\u17b6\u1781\u17d2\u1798\u17c2\u179a:P|\ud55c\uad6d\uc5b4:P|' +
-    '\u4e2d\u6587(\u53f0\u7063):P|\u4e2d\u6587(\u7b80\u4f53):P|\u4e2d\u6587(\u9999\u6e2f):P|\u65e5\u672c\u8a9e:P|\u65e5\u672c\u8a9e(\u95a2\u897f):P')
-    .split('|').map(function (item) { const cut = item.lastIndexOf(':'); return { name: item.slice(0, cut), region: item.slice(cut + 1) }; });
-
-  function currentLanguage() {
-    try { return localStorage.getItem('pbh-language') || 'English (US)'; } catch (error) { return 'English (US)'; }
-  }
-
   function languageButton() {
     return h('button', { type: 'button', class: 'lang-btn', 'aria-haspopup': 'dialog', onclick: function (event) { openLanguagePicker(event.currentTarget); } },
       'Language', icon('up'));
   }
 
   function openLanguagePicker(opener) {
-    let region = 'all';
-    let chosen = currentLanguage();
-    const listBox = h('div', { class: 'lang-cols', role: 'group', 'aria-label': 'Languages' });
-    const listScroll = h('div', { class: 'lang-list' }, listBox);
-    const regionBox = h('div', { class: 'lang-regions', role: 'group', 'aria-label': 'Regions' });
-    const suggestedBox = h('div', { class: 'lang-suggested-list' });
-
-    function langOption(name) {
-      const selected = name === chosen;
+    const current = I18N.name;
+    const options = I18N.languages.map(function (name) {
+      const selected = name === current;
       return h('button', {
-        type: 'button', class: 'lang-option' + (selected ? ' selected' : ''), 'aria-pressed': String(selected),
+        type: 'button', class: 'lang-option' + (selected ? ' selected' : ''), 'aria-pressed': String(selected), 'data-no-translate': '',
         onclick: function () {
-          chosen = name;
-          try { localStorage.setItem('pbh-language', name); } catch (error) { /* storage may be off */ }
-          close();
+          if (name === current) return close();
+          I18N.set(name);
+          location.reload();
         }
       }, name, selected ? h('span', { class: 'lang-check', 'aria-hidden': 'true' }, '\u2713') : null);
-    }
-    function render() {
-      suggestedBox.replaceChildren.apply(suggestedBox, LANG_SUGGESTED.map(langOption));
-      regionBox.replaceChildren.apply(regionBox, LANG_REGIONS.map(function (r) {
-        return h('button', { type: 'button', class: 'lang-region' + (r[0] === region ? ' active' : ''), 'aria-pressed': String(r[0] === region),
-          onclick: function () { region = r[0]; render(); } }, r[1]);
-      }));
-      listBox.replaceChildren.apply(listBox, LANGUAGES
-        .filter(function (l) { return region === 'all' || l.region === region; })
-        .map(function (l) { return langOption(l.name); }));
-    }
-
+    });
     const closeBtn = h('button', { type: 'button', class: 'lang-close', 'aria-label': 'Close', onclick: function () { close(); } }, icon('close'));
     const card = h('div', { class: 'lang-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'lang-title' },
       h('div', { class: 'lang-head' }, h('h2', { id: 'lang-title' }, 'Select your language'), closeBtn),
-      h('div', { class: 'lang-suggested' }, h('span', { class: 'lang-label' }, 'Suggested languages'), suggestedBox),
-      h('div', { class: 'lang-body' }, regionBox, listScroll));
+      h('div', { class: 'lang-options' }, options));
     const overlay = h('div', { class: 'lang-overlay' }, card);
     function onKey(event) {
       if (event.key === 'Escape') { event.preventDefault(); close(); }
@@ -388,11 +341,11 @@
     }
     overlay.addEventListener('click', function (event) { if (event.target === overlay) close(); });
     document.addEventListener('keydown', onKey, true);
-    render();
     document.body.classList.add('lang-open');
     document.body.appendChild(overlay);
-    closeBtn.focus();
+    (card.querySelector('.lang-option.selected') || closeBtn).focus();
   }
+
 
   /** The brand-red panel beside the form: headline plus three cards (signup steps, or the 50/30/20 split). */
   function authHero(signin) {
@@ -1146,7 +1099,7 @@
     if (hours < 24) return hours + 'h';
     const days = Math.round(hours / 24);
     if (days < 7) return days + 'd';
-    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+    return new Date(ms).toLocaleDateString(I18N.locale, { month: 'short', day: 'numeric', year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
   }
 
   const VIS_ICONS = {
@@ -1645,7 +1598,7 @@
             avatar(person, person.avatar, 2.75),
             h('span', { class: 'person-names chat-names' },
               h('span', { class: 'chat-top' }, h('strong', null, person.name), h('span', { class: 'small muted num' }, timeAgo(chat.lastAt))),
-              h('span', { class: 'small chat-preview' + (unread ? '' : ' muted') }, (chat.lastFrom === BT.currentUser().id ? 'You: ' : '') + chat.lastText)),
+              h('span', { class: 'small chat-preview' + (unread ? '' : ' muted') }, chat.lastFrom === BT.currentUser().id ? 'You: ' : null, h('span', { class: 'chat-last' }, chat.lastText))),
             unread ? h('span', { class: 'unread-dot' }, h('span', { class: 'vh' }, 'Unread')) : null));
         }).catch(function () { li.remove(); });
       });
@@ -1662,7 +1615,7 @@
   }
 
   function clockTime(ms) {
-    return new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return new Date(ms).toLocaleTimeString(I18N.locale, { hour: 'numeric', minute: '2-digit' });
   }
 
   function dayLabel(ms) {
@@ -1672,7 +1625,7 @@
     yesterday.setDate(today.getDate() - 1);
     if (d.toDateString() === today.toDateString()) return 'Today';
     if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-    return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
+    return d.toLocaleDateString(I18N.locale, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
   }
 
   function viewChat() {
