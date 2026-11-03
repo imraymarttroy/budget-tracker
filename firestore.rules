@@ -121,6 +121,21 @@ service cloud.firestore {
           && request.resource.data.updatedAt is int;
       }
 
+      // circleinfo/main: total savings and birthday, only if the owner turned them on. Owner and circle only.
+      match /circleinfo/{docId} {
+        allow read: if signedInAs(uid) || (signedIn() && inCircle());
+        allow delete: if signedInAs(uid);
+        allow create, update: if signedInAs(uid) && docId == 'main'
+          && request.resource.data.keys().hasOnly(['showSavings', 'savingsCents', 'currency', 'showBirthday', 'birthday', 'updatedAt'])
+          && request.resource.data.showSavings is bool && request.resource.data.showBirthday is bool
+          && (request.resource.data.savingsCents == null || (request.resource.data.savingsCents is int && request.resource.data.savingsCents >= 0))
+          && (request.resource.data.showSavings || request.resource.data.savingsCents == null)
+          && request.resource.data.currency is string && request.resource.data.currency.size() <= 5
+          && (request.resource.data.birthday == null || (request.resource.data.birthday is string && request.resource.data.birthday.matches('^[0-9]{2}-[0-9]{2}$')))
+          && (request.resource.data.showBirthday || request.resource.data.birthday == null)
+          && request.resource.data.updatedAt is int;
+      }
+
       function inCircle() {
         return exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid));
       }

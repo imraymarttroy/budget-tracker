@@ -92,6 +92,60 @@ window.SOC = (function () {
     return data;
   }
 
+  /* ---------- What your circle may see: total savings and birthday ----------
+     profiles/{uid}/circleinfo/main = { showSavings, savingsCents, currency, showBirthday, birthday (MM-DD), updatedAt }.
+     Only you and people in your circle can read it, and nothing is stored unless you turn it on. */
+
+  const circleInfoDoc = function (uid) { return F().doc(db(), 'profiles', uid, 'circleinfo', 'main'); };
+  let myInfo;   /* undefined = not loaded yet */
+
+  async function loadCircleInfo(uid) {
+    try {
+      const snap = await F().getDoc(circleInfoDoc(uid || me()));
+      const info = snap.exists() ? snap.data() : null;
+      if (!uid || uid === me()) myInfo = info;
+      return info;
+    } catch (error) {
+      if (error && error.code === 'permission-denied') return null;
+      throw friendly(error);
+    }
+  }
+
+  /** Turns sharing on or off. birthday is YYYY-MM-DD from the account; only the month and day are kept. */
+  async function saveCircleInfo(opts) {
+    const data = {
+      showSavings: !!opts.showSavings,
+      savingsCents: opts.showSavings && Number.isInteger(opts.savingsCents) ? Math.max(0, opts.savingsCents) : null,
+      currency: opts.currency || 'PHP',
+      showBirthday: !!opts.showBirthday,
+      birthday: opts.showBirthday && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(opts.birthday || '') ? opts.birthday.slice(5) : null,
+      updatedAt: Date.now()
+    };
+    if (!data.showSavings && !data.showBirthday) {
+      await run(function () { return F().deleteDoc(circleInfoDoc(me())); });
+      myInfo = null;
+      return null;
+    }
+    await run(function () { return F().setDoc(circleInfoDoc(me()), data); });
+    myInfo = data;
+    return data;
+  }
+
+  /** Keeps the shared savings total current. Does nothing unless sharing is on. */
+  async function publishSavings(cents, currency) {
+    if (myInfo === undefined) await loadCircleInfo().catch(function () {});
+    if (!myInfo || !myInfo.showSavings) return;
+    if (myInfo.savingsCents === cents && myInfo.currency === currency) return;
+    const update = { savingsCents: cents, currency: currency, updatedAt: Date.now() };
+    await F().updateDoc(circleInfoDoc(me()), update).then(function () { Object.assign(myInfo, update); }).catch(function (e) { console.error(e); });
+  }
+
+  /** Wallet + savings, the same "Total savings" the tracker shows. */
+  async function savingsTotal(owner) {
+    const snap = await run(function () { return F().getDocs(accountsCol(owner || me())); });
+    return snap.docs.reduce(function (t, d) { const a = d.data(); return a.type === 'wallet' || a.type === 'savings' ? t + a.cents : t; }, 0);
+  }
+
   async function loadCover(uid) {
     const snap = await run(function () { return F().getDoc(coverDoc(uid)); });
     return snap.exists() ? snap.data().data : null;
@@ -670,6 +724,7 @@ window.SOC = (function () {
     refs.push(profileDoc(uid));
     refs.push(trustDoc(uid));
     refs.push(coverDoc(uid));
+    refs.push(circleInfoDoc(uid));
     const myAccounts = await run(function () { return F().getDocs(accountsCol(uid)); });
     myAccounts.docs.forEach(function (d) { refs.push(d.ref); });
     const sharedWithMe = await run(function () { return F().getDocs(F().query(F().collection(db(), 'trust'), F().where('member', '==', uid))); });
@@ -707,6 +762,7 @@ window.SOC = (function () {
     watchNotifications: watchNotifications, stopWatching: stopWatching, onNotifications: onNotifications,
     notifications: notifications, unreadCount: unreadCount, markAllRead: markAllRead, dismissNotification: dismissNotification,
     deleteEverything: deleteEverything,
+    loadCircleInfo: loadCircleInfo, saveCircleInfo: saveCircleInfo, publishSavings: publishSavings, savingsTotal: savingsTotal,
     loadCover: loadCover, EDU_MAX: EDU_MAX, WORK_MAX: WORK_MAX, COVER_MAX: COVER_MAX, saveProfileExtras: saveProfileExtras, loadProfile: loadProfile, feedPosts: feedPosts,
     TRUST_ROLES: TRUST_ROLES, watchTrust: watchTrust, stopWatchingTrust: stopWatchingTrust, onTrust: onTrust,
     myTrust: myTrust, trustedMe: trustedMe, trustLoaded: trustLoaded, trustFrom: trustFrom,
