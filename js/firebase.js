@@ -25,9 +25,9 @@ try {
   const app = appMod.initializeApp(config);
   window.FB = { auth: authMod.getAuth(app), db: fsMod.getFirestore(app), A: authMod, F: fsMod };
   await import('./i18n.js?v=2');
-  await import('./core.js?v=11');
-  await import('./social.js?v=12');
-  await import('./app.js?v=24');
+  await import('./core.js?v=12');
+  await import('./social.js?v=13');
+  await import('./app.js?v=25');
 } catch (error) {
   console.error(error);
   fail('PassbookHub could not start. Check your internet connection and reload the page.');

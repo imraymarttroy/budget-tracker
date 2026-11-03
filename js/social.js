@@ -441,6 +441,116 @@ window.SOC = (function () {
     await run(function () { return F().updateDoc(chatDoc(chat.id), update); });
   }
 
+  /* ---------- Trusted person (one per dashboard) ----------
+     trust/{ownerUid} = { member, role: 'view' | 'edit', status: 'pending' | 'accepted', currency, createdAt }.
+     The owner picks one person from their circle; that person accepts from Alerts. */
+
+  const TRUST_ROLES = { view: 'View only', edit: 'Can edit' };
+  const trustDoc = function (owner) { return F().doc(db(), 'trust', owner); };
+  const sharedTxCol = function (owner) { return F().collection(db(), 'users', owner, 'tx'); };
+
+  let trustOut = null;           /* the share I gave (or null) */
+  let trustIn = [];              /* shares other people gave me */
+  let trustReady = false;
+  let trustStops = [];
+  const trustListeners = [];
+
+  function emitTrust() { trustListeners.forEach(function (fn) { fn(); }); }
+
+  function watchTrust() {
+    stopWatchingTrust();
+    if (!me()) return;
+    let gotOut = false, gotIn = false;
+    trustStops.push(F().onSnapshot(trustDoc(me()), function (snap) {
+      trustOut = snap.exists() ? Object.assign({ owner: snap.id }, snap.data()) : null;
+      gotOut = true; trustReady = gotOut && gotIn;
+      emitTrust();
+    }, function (error) { console.error(error); gotOut = true; trustReady = gotIn; emitTrust(); }));
+    trustStops.push(F().onSnapshot(F().query(F().collection(db(), 'trust'), F().where('member', '==', me())), function (snap) {
+      trustIn = snap.docs.map(function (d) { return Object.assign({ owner: d.id }, d.data()); });
+      gotIn = true; trustReady = gotOut && gotIn;
+      emitTrust();
+    }, function (error) { console.error(error); gotIn = true; trustReady = gotOut; emitTrust(); }));
+  }
+
+  function stopWatchingTrust() {
+    trustStops.forEach(function (stop) { stop(); });
+    trustStops = [];
+    trustOut = null; trustIn = []; trustReady = false;
+  }
+
+  function onTrust(fn) { trustListeners.push(fn); }
+  function myTrust() { return trustOut; }
+  function trustedMe() { return trustIn.slice(); }
+  function trustLoaded() { return trustReady; }
+  function trustFrom(owner) { return trustIn.find(function (t) { return t.owner === owner; }) || null; }
+
+  /** Invites one person from your circle. Replaces whoever was trusted before. */
+  async function inviteTrusted(uid, role, currency) {
+    if (!TRUST_ROLES[role]) throw new BT.UserError('Choose what they can do.');
+    if (uid === me()) throw new BT.UserError('Choose someone from your circle.');
+    const now = Date.now();
+    const batch = F().writeBatch(db());
+    batch.set(trustDoc(me()), { member: uid, role: role, status: 'pending', currency: currency, createdAt: now });
+    batch.set(F().doc(notesCol(uid), 'trust_' + me()), { type: 'trust', from: me(), createdAt: now, read: false });
+    await run(function () { return batch.commit(); });
+  }
+
+  async function setTrustRole(role) {
+    if (!TRUST_ROLES[role]) throw new BT.UserError('Choose what they can do.');
+    await run(function () { return F().updateDoc(trustDoc(me()), { role: role }); });
+  }
+
+  /** Keeps the currency your trusted person sees in step with yours. */
+  function syncTrustCurrency(currency) {
+    if (!trustOut || trustOut.currency === currency) return;
+    F().updateDoc(trustDoc(me()), { currency: currency }).catch(function (error) { console.error(error); });
+  }
+
+  async function removeTrusted() {
+    await run(function () { return F().deleteDoc(trustDoc(me())); });
+  }
+
+  async function acceptTrust(owner) {
+    const now = Date.now();
+    const batch = F().writeBatch(db());
+    batch.update(trustDoc(owner), { status: 'accepted' });
+    batch.delete(F().doc(notesCol(me()), 'trust_' + owner));
+    batch.set(F().doc(notesCol(owner), 'trusted_' + me()), { type: 'trusted', from: me(), createdAt: now, read: false });
+    await run(function () { return batch.commit(); });
+  }
+
+  /** Declining an invite and leaving a shared dashboard are the same thing. */
+  async function leaveTrust(owner) {
+    const batch = F().writeBatch(db());
+    batch.delete(trustDoc(owner));
+    batch.delete(F().doc(notesCol(me()), 'trust_' + owner));
+    await run(function () { return batch.commit(); });
+  }
+
+  /* Someone else's entries, for their trusted person. Calls back with every change. */
+  function watchSharedTx(owner, onChange, onError) {
+    return F().onSnapshot(sharedTxCol(owner), function (snap) {
+      onChange(snap.docs.map(function (d) { return Object.assign({}, d.data(), { id: d.id }); }));
+    }, function (error) { onError(friendly(error)); });
+  }
+  function cleanTx(tx) { return { type: tx.type, desc: tx.desc, cents: tx.cents, date: tx.date, createdAt: tx.createdAt || Date.now() }; }
+  async function addSharedTx(owner, tx) {
+    const ref = F().doc(sharedTxCol(owner));
+    const record = cleanTx(tx);
+    await run(function () { return F().setDoc(ref, record); });
+    return Object.assign({ id: ref.id }, record);
+  }
+  async function updateSharedTx(owner, id, changes) {
+    await run(function () { return F().updateDoc(F().doc(sharedTxCol(owner), id), changes); });
+  }
+  async function deleteSharedTx(owner, id) {
+    await run(function () { return F().deleteDoc(F().doc(sharedTxCol(owner), id)); });
+  }
+  async function restoreSharedTx(owner, tx) {
+    await run(function () { return F().setDoc(F().doc(sharedTxCol(owner), tx.id), cleanTx(tx)); });
+  }
+
   /* ---------- Account deletion ---------- */
 
   /** Removes everything social that belongs to the signed-in person. Call before deleting the account. */
@@ -455,6 +565,9 @@ window.SOC = (function () {
     lists.forEach(function (snap) { snap.docs.forEach(function (d) { refs.push(d.ref); }); });
     lists[1].docs.forEach(function (d) { refs.push(circleDoc(d.id, uid)); });
     refs.push(profileDoc(uid));
+    refs.push(trustDoc(uid));
+    const sharedWithMe = await run(function () { return F().getDocs(F().query(F().collection(db(), 'trust'), F().where('member', '==', uid))); });
+    sharedWithMe.docs.forEach(function (d) { refs.push(d.ref); });
     /* Your own messages and the conversations you are in. */
     const myChats = await run(function () {
       return F().getDocs(F().query(F().collection(db(), 'chats'), F().where('members', 'array-contains', uid)));
@@ -473,6 +586,7 @@ window.SOC = (function () {
     }
     stopWatching();
     stopWatchingChats();
+    stopWatchingTrust();
   }
 
   return {
@@ -486,6 +600,11 @@ window.SOC = (function () {
     validatePost: validatePost, createPost: createPost, setPostVisibility: setPostVisibility, deletePost: deletePost, listPosts: listPosts,
     watchNotifications: watchNotifications, stopWatching: stopWatching, onNotifications: onNotifications,
     notifications: notifications, unreadCount: unreadCount, markAllRead: markAllRead, dismissNotification: dismissNotification,
-    deleteEverything: deleteEverything
+    deleteEverything: deleteEverything,
+    TRUST_ROLES: TRUST_ROLES, watchTrust: watchTrust, stopWatchingTrust: stopWatchingTrust, onTrust: onTrust,
+    myTrust: myTrust, trustedMe: trustedMe, trustLoaded: trustLoaded, trustFrom: trustFrom,
+    inviteTrusted: inviteTrusted, setTrustRole: setTrustRole, syncTrustCurrency: syncTrustCurrency, removeTrusted: removeTrusted,
+    acceptTrust: acceptTrust, leaveTrust: leaveTrust,
+    watchSharedTx: watchSharedTx, addSharedTx: addSharedTx, updateSharedTx: updateSharedTx, deleteSharedTx: deleteSharedTx, restoreSharedTx: restoreSharedTx
   };
 })();
