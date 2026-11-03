@@ -483,11 +483,11 @@
 
   /** Settings: the two-step verification switch. */
   function securitySection() {
-    const sec = h('section', { class: 'section' });
+    const sec = h('div', { class: 'set-security-body' });
     function draw() {
       const on = BT.mfaOn();
       sec.replaceChildren(
-        h('h2', null, 'Two-step verification'),
+        h('h3', { class: 'set-sub' }, 'Two-step verification'),
         h('p', { class: 'small muted', style: 'margin:0.25rem 0 0.75rem' }, 'Ask for a 6-digit code from an authenticator app every time you sign in.'),
         h('div', { class: 'otp-status' + (on ? ' on' : '') },
           h('span', { class: 'otp-dot', 'aria-hidden': 'true' }),
@@ -506,7 +506,7 @@
                 }
               } }, 'Turn off')
             : h('button', { type: 'button', class: 'btn primary small', onclick: function () {
-                sec.replaceChildren(h('h2', null, 'Turn on two-step verification'), totpSetup({ onDone: draw, onCancel: draw }));
+                sec.replaceChildren(h('h3', { class: 'set-sub' }, 'Turn on two-step verification'), totpSetup({ onDone: draw, onCancel: draw }));
               } }, 'Turn on')));
     }
     draw();
@@ -1236,9 +1236,54 @@
     }
     showDelete();
 
-    /* Two tabs: Profile settings (everything below) and Circle settings (blocked people). */
-    const profilePanel = h('div', { id: 'panel-set-profile', role: 'tabpanel', 'aria-labelledby': 'tab-set-profile', style: 'max-width:26rem' });
-    const circlePanel = h('div', { id: 'panel-set-circle', role: 'tabpanel', 'aria-labelledby': 'tab-set-circle', hidden: true }, circleSettings());
+    /* Same look as the profile: a red hero card, pill tabs, then cards in two columns. */
+    const mfaChip = h('span', { class: 'set-chip' });
+    function drawChip() {
+      const on = BT.mfaOn();
+      mfaChip.className = 'set-chip' + (on ? ' on' : '');
+      mfaChip.replaceChildren(h('span', { class: 'otp-dot', 'aria-hidden': 'true' }), 'Two-step ' + (on ? 'on' : 'off'));
+    }
+    drawChip();
+    const hero = h('section', { class: 'pf-card pf-hero set-hero' },
+      h('div', { class: 'pf-hero-glow', 'aria-hidden': 'true' }, h('span'), h('span')),
+      h('div', { class: 'pf-hero-copy' },
+        h('span', { class: 'pf-kicker' }, 'Settings'),
+        h('h1', { class: 'pf-name' }, 'Your account'),
+        h('p', { class: 'pf-handle' }, user.name + ' · @' + user.username),
+        h('div', { class: 'set-chips' },
+          mfaChip,
+          h('span', { class: 'set-chip' }, flagImage(user.currency), user.currency),
+          h('span', { class: 'set-chip' }, user.provider !== 'password' ? BT.socialLabel(user.provider) + ' sign-in' : 'Email sign-in'))),
+      h('div', { class: 'pf-hero-photo' }, avatar(user, user.avatar, 6.5)));
+    const knownCover = coverFromCache(user.id);
+    if (knownCover) { hero.style.setProperty('--cover', 'url("' + knownCover + '")'); hero.classList.add('has-cover'); }
+
+    function card(title, iconName, body, extraClass) {
+      return h('section', { class: 'pf-card pf-list-card set-card' + (extraClass ? ' ' + extraClass : '') },
+        h('div', { class: 'pf-card-head' }, h('h2', null, title), iconName ? pIcon(iconName) : null),
+        body);
+    }
+
+    const security = securitySection();
+    const securityWatch = setInterval(function () { if (!security.isConnected) { clearInterval(securityWatch); return; } drawChip(); }, 1500);
+
+    const profilePanel = h('div', { id: 'panel-set-profile', role: 'tabpanel', 'aria-labelledby': 'tab-set-profile', class: 'pf-page' },
+      h('div', { class: 'pf-main' },
+        card('Profile', 'camera', form)),
+      h('div', { class: 'pf-side' },
+        card('Account', null,
+          h('dl', { class: 'account-details' },
+            h('dt', null, 'Username'), h('dd', null, '@' + user.username),
+            h('dt', null, 'Email'), h('dd', null, user.email),
+            user.provider !== 'password' ? [h('dt', null, 'Sign-in'), h('dd', null, BT.socialLabel(user.provider))] : null,
+            h('dt', null, 'Birthday'), h('dd', null, BT.longDate(user.birthday)))),
+        card('Security', 'lock', security, 'set-security'),
+        card('Delete account', null, h('div', null,
+          h('p', { class: 'small muted', style: 'margin:0 0 0.75rem' }, 'Permanently remove your profile, budget, accounts and messages.'),
+          dangerBox), 'set-danger')));
+    const circlePanel = h('div', { id: 'panel-set-circle', role: 'tabpanel', 'aria-labelledby': 'tab-set-circle', class: 'pf-page single', hidden: true },
+      h('div', { class: 'pf-main' }, card('Blocked people', 'block', circleSettings())));
+
     const tabs = [['profile', 'Profile settings', profilePanel], ['circle', 'Circle settings', circlePanel]];
     const tabButtons = tabs.map(function (t, i) {
       return h('button', {
@@ -1258,21 +1303,11 @@
       });
     }
     pick(state.settingsTab === 'circle' ? 1 : 0);
-    return h('div', { class: 'wide' },
-      h('h1', { style: 'margin-bottom:1rem' }, 'Settings'),
-      h('div', { class: 'dash-tabs', role: 'tablist', 'aria-label': 'Settings' }, tabButtons),
-      circlePanel,
-      (profilePanel.append(
-        form,
-        h('section', { class: 'section' },
-          h('h2', null, 'Account'),
-          h('dl', { class: 'account-details', style: 'margin-top:0.75rem' },
-            h('dt', null, 'Username'), h('dd', null, '@' + user.username),
-            h('dt', null, 'Email'), h('dd', null, user.email),
-            user.provider !== 'password' ? [h('dt', null, 'Sign-in'), h('dd', null, BT.socialLabel(user.provider))] : null,
-            h('dt', null, 'Birthday'), h('dd', null, BT.longDate(user.birthday)))),
-        securitySection(),
-        h('section', { class: 'section' }, h('h2', { style: 'margin-bottom:0.75rem' }, 'Delete account'), dangerBox)), profilePanel));
+    return h('div', { class: 'wide pf-wide set-page' },
+      hero,
+      h('div', { class: 'dash-tabs set-tabs', role: 'tablist', 'aria-label': 'Settings' }, tabButtons),
+      profilePanel,
+      circlePanel);
   }
 
   /** Circle settings: people you blocked, with Unblock. */
@@ -1299,9 +1334,8 @@
       }).catch(function (error) { list.replaceChildren(h('p', { class: 'empty' }, error.message)); });
     }
     draw();
-    return h('div', { style: 'max-width:36rem' },
-      h('h2', null, 'Blocked people'),
-      h('p', { class: 'muted small', style: 'margin:0.25rem 0 0.75rem' }, 'People you block are removed from your circle, won\u2019t show up when you search, and can\u2019t send you a circle request.'),
+    return h('div', null,
+      h('p', { class: 'muted small', style: 'margin:0 0 0.75rem' }, 'People you block are removed from your circle, won\u2019t show up when you search, and can\u2019t send you a circle request.'),
       list);
   }
 
@@ -1875,6 +1909,8 @@
     circle: '<circle cx="7" cy="7.5" r="2.75"/><circle cx="13.5" cy="8" r="2.25"/><path d="M2.5 16c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4M12 12.2c2.3-.4 4.5.9 5.2 3.8"/>',
     camera: '<path d="M3 7a2 2 0 0 1 2-2h1.5l1.2-1.8h4.6L13.5 5H15a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="10" cy="10.5" r="3"/>',
     plus: '<path d="M10 4v12M4 10h12"/>',
+    lock: '<rect x="4.5" y="9" width="11" height="8" rx="1.5"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>',
+    block: '<circle cx="10" cy="10" r="7"/><path d="m5.1 5.1 9.8 9.8"/>',
     piggy: '<path d="M4.5 9.5a5.5 4.5 0 0 1 9.6-2.4l2.4-.6-.6 2.3c.6.6 1 1.4 1.1 2.2h1v2h-1.5a5 5 0 0 1-1.5 1.6V17h-2.5v-1.3a7 7 0 0 1-2.5 0V17H7.5v-2a4.6 4.6 0 0 1-2.2-2.5H3v-2h1.6z"/><path d="M8 7.2a3.2 3.2 0 0 1 3 0"/><circle cx="13.2" cy="10" r=".5" fill="currentColor"/>',
     cake: '<path d="M3.5 17h13M4.5 17v-5a1.5 1.5 0 0 1 1.5-1.5h8a1.5 1.5 0 0 1 1.5 1.5v5"/><path d="M4.5 13.5c1 .8 2 .8 2.8 0s1.8-.8 2.7 0 1.8.8 2.7 0 1.8-.8 2.8 0M10 10.5V8M10 6.2c-.7-.6-.7-1.4 0-2.2.7.8.7 1.6 0 2.2z"/>'
   };
