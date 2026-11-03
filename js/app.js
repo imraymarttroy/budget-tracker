@@ -192,6 +192,7 @@
     const session = BT.sessionState();
     if (session === 'error') return 'offline';
     if (session === 'orphan') return 'orphan';
+    if (session === 'complete') return 'complete';
     const user = BT.currentUser();
     if (!user) return ['signin', 'signup', 'forgot'].indexOf(wanted) !== -1 ? wanted : 'signin';
     if (!user.verified) return 'verify';
@@ -216,7 +217,8 @@
     notifications: { title: 'Notifications', render: viewNotifications },
     settings: { title: 'Settings', render: viewSettings },
     offline: { title: 'Could not load', render: viewOffline },
-    orphan: { title: 'Finish signing up', render: viewOrphan }
+    orphan: { title: 'Finish signing up', render: viewOrphan },
+    complete: { title: 'Finish signing up', render: viewComplete }
   };
 
   function render() {
@@ -229,6 +231,7 @@
     state.view = view;
     state.refreshDashboard = null;
     document.title = VIEWS[view].title + ' · PassbookHub';
+    document.body.classList.toggle('auth-body', view === 'signin' || view === 'signup');
     const content = VIEWS[view].render(view);
     if (SHELL_VIEWS.indexOf(view) !== -1) {
       startSocial();
@@ -251,15 +254,75 @@
   function viewAuth(view) {
     const notice = state.notice;
     state.notice = null;
-    return h('div', { class: 'narrow' },
-      h('header', { class: 'intro' },
-        h('h1', { class: 'brand' }, 'PassbookHub'),
-        h('p', { class: 'muted' }, 'Half for needs, some for wants, the rest for later.')),
-      h('nav', { class: 'tabs', 'aria-label': 'Account' },
-        h('a', { href: '#signin', 'aria-current': view === 'signin' ? 'page' : null }, 'Sign in'),
-        h('a', { href: '#signup', 'aria-current': view === 'signup' ? 'page' : null }, 'Sign up')),
-      notice ? h('p', { class: 'notice', role: 'status', style: 'margin-bottom:1rem' }, notice) : null,
-      view === 'signin' ? signInForm() : signUpForm());
+    const redirectError = BT.takeRedirectError();
+    const signin = view === 'signin';
+    return h('div', { class: 'auth-page' },
+      h('div', { class: 'auth-glow', 'aria-hidden': 'true' }, h('span'), h('span')),
+      h('div', { class: 'auth-main' },
+        h('span', { class: 'auth-wordmark' }, logoMark('auth-wordmark-mark'), 'PassbookHub'),
+        h('h1', { class: 'auth-title' }, signin ? 'Sign in to PassbookHub' : 'Create your PassbookHub account'),
+        notice ? h('p', { class: 'notice', role: 'status' }, notice) : null,
+        signin ? signInForm() : signUpForm(),
+        h('p', { class: 'or-divider' }, h('span', null, 'or')),
+        socialButtons(view, redirectError),
+        h('p', { class: 'auth-switch' }, signin
+          ? ['Don\u2019t have an account? ', h('a', { href: '#signup' }, 'Sign up')]
+          : ['Already have an account? ', h('a', { href: '#signin' }, 'Sign in')])),
+      h('footer', { class: 'auth-footer' },
+        h('span', null, '\u00a9 ' + new Date().getFullYear() + ' PassbookHub'),
+        h('span', null, 'Half for needs, some for wants, the rest for later.')));
+  }
+
+  /* The PassbookHub mark (the same three lines as the favicon). Markup is a constant. */
+  function logoMark(className) {
+    const holder = document.createElement('span');
+    holder.className = className;
+    holder.innerHTML = '<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">' +
+      '<rect class="m-box" x="1" y="1" width="30" height="30" rx="7"/>' +
+      '<rect class="m-inner" x="2.6" y="2.6" width="26.8" height="26.8" rx="5.6"/>' +
+      '<path class="m-line" d="M7 22h18M7 16h11M7 10h7" stroke-linecap="round"/>' +
+      '<path class="m-cut" d="M7 22h18M7 16h11M7 10h7" stroke-linecap="round"/></svg>';
+    return holder;
+  }
+
+  const SOCIAL_ICONS = {
+    google: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.5 5.5 0 0 1-2.4 3.6v3h3.9c2.2-2.1 3.5-5.1 3.5-8.7z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.1 0-5.8-2.1-6.7-5H1.3v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.3 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.3a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.3 6.6l4 3.1c.9-2.8 3.6-4.9 6.7-4.9z"/></svg>',
+    facebook: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12a12 12 0 1 0-13.9 11.9v-8.4H7.1V12h3V9.4c0-3 1.8-4.7 4.5-4.7 1.3 0 2.7.2 2.7.2v3h-1.5c-1.5 0-2 .9-2 1.9V12h3.4l-.5 3.5h-2.9v8.4A12 12 0 0 0 24 12z"/></svg>'
+  };
+
+  /** "Continue with Google" and "Continue with Facebook". Icon markup comes only from the table above. */
+  function socialButtons(view, initialError) {
+    const status = h('p', { class: 'form-error', role: 'alert', hidden: !initialError }, initialError || '');
+    const buttons = ['google', 'facebook'].map(function (which) {
+      const logo = h('span', { class: 'social-logo' });
+      logo.innerHTML = SOCIAL_ICONS[which];
+      const label = 'Continue with ' + BT.socialLabel(which);
+      return h('button', {
+        type: 'button',
+        class: 'btn full social-btn',
+        onclick: async function (event) {
+          const button = event.currentTarget;
+          const all = box.querySelectorAll('button');
+          all.forEach(function (b) { b.disabled = true; });
+          status.hidden = true;
+          button.querySelector('.social-label').textContent = 'Opening ' + BT.socialLabel(which) + '…';
+          try {
+            await BT.socialSignIn(which);
+            /* On success the session listener loads the account and redraws. */
+          } catch (error) {
+            status.textContent = error instanceof BT.UserError ? error.message : 'Something went wrong. Please try again.';
+            status.hidden = false;
+          } finally {
+            if (button.isConnected) {
+              all.forEach(function (b) { b.disabled = false; });
+              button.querySelector('.social-label').textContent = label;
+            }
+          }
+        }
+      }, logo, h('span', { class: 'social-label' }, label), h('span', { class: 'social-chevron', 'aria-hidden': 'true' }, '\u203a'));
+    });
+    const box = h('div', { class: 'stack' }, buttons, status);
+    return box;
   }
 
   function signInForm() {
@@ -285,11 +348,11 @@
         });
       }
     },
-      field({ name: 'email', label: 'Email', type: 'email', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false' } }),
-      field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'current-password' } }),
+      field({ name: 'email', label: 'Email', type: 'email', wrapClass: 'quiet-label', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'Email' } }),
+      field({ name: 'password', label: 'Password', type: 'password', wrapClass: 'quiet-label', attrs: { autocomplete: 'current-password', placeholder: 'Password' } }),
       formError(),
       h('button', { class: 'btn primary full', type: 'submit' }, 'Sign in'),
-      h('p', { class: 'small' }, h('a', { href: '#forgot' }, 'Forgot password?')));
+      h('p', { class: 'small auth-forgot' }, h('a', { href: '#forgot' }, 'Forgot password?')));
     return form;
   }
 
@@ -493,6 +556,49 @@
           location.hash = '#signup';
         }
       }, 'Start over'));
+  }
+
+  /** First Google or Facebook sign-in: ask for what PassbookHub needs that those accounts do not give us. */
+  function viewComplete() {
+    const form = h('form', {
+      class: 'stack',
+      novalidate: true,
+      onsubmit: function (event) {
+        event.preventDefault();
+        const input = {
+          name: form.elements.name.value.trim().replace(/\s+/g, ' '),
+          birthday: form.elements.birthday.value,
+          username: form.elements.username.value.trim()
+        };
+        const errors = BT.validateSocialProfile(input, BT.today());
+        if (Object.keys(errors).length) return showErrors(form, errors);
+        busy(form, 'Creating account…', async function () {
+          await BT.completeSocialProfile(input);
+          render();
+        });
+      }
+    },
+      field({ name: 'name', label: 'Name', hint: 'This becomes your profile name.', attrs: { autocomplete: 'name', maxlength: 60, value: BT.socialName().slice(0, 60) } }),
+      field({ name: 'birthday', label: 'Birthday', type: 'date', hint: 'You must be ' + BT.MIN_AGE + ' or older.', attrs: { autocomplete: 'bday', max: BT.today() } }),
+      field({ name: 'username', label: 'Username', attrs: { autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', maxlength: 20 } }),
+      formError(),
+      h('button', { class: 'btn primary full', type: 'submit' }, 'Create account'));
+
+    return h('div', { class: 'narrow' },
+      h('span', { class: 'brand step-brand' }, 'PassbookHub'),
+      h('header', { class: 'intro' },
+        h('h1', null, 'Almost done'),
+        h('p', { class: 'muted' }, 'Pick a username and add your birthday to finish creating your PassbookHub account.')),
+      form,
+      h('p', { class: 'small', style: 'margin-top:1rem' }, h('button', {
+        type: 'button',
+        class: 'link flush',
+        onclick: async function (event) {
+          event.currentTarget.disabled = true;
+          await BT.discardOrphan();
+          location.hash = '#signin';
+        }
+      }, 'Cancel and go back')));
   }
 
   /* ---------- Profile picture and bio ---------- */
@@ -762,13 +868,14 @@
     }
     function showConfirm() {
       const cancel = h('button', { type: 'button', class: 'btn', onclick: function () { showDelete(); dangerBox.querySelector('button').focus(); } }, 'Keep account');
+      const social = user.provider !== 'password';
       const confirmForm = h('form', {
         class: 'stack',
         novalidate: true,
         onsubmit: function (event) {
           event.preventDefault();
-          const password = confirmForm.elements.password.value;
-          if (!password) return showErrors(confirmForm, { password: 'Enter your password.' });
+          const password = social ? null : confirmForm.elements.password.value;
+          if (!social && !password) return showErrors(confirmForm, { password: 'Enter your password.' });
           busy(confirmForm, 'Deleting…', async function () {
             await BT.deleteAccount(password);
             state.notice = 'Your account has been deleted.';
@@ -776,14 +883,16 @@
           });
         }
       },
-        h('p', { class: 'small' }, 'This permanently deletes your profile and every transaction. Enter your password to confirm.'),
-        field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'current-password' } }),
+        h('p', { class: 'small' }, social
+          ? 'This permanently deletes your profile and every transaction. ' + BT.socialLabel(user.provider) + ' will ask you to confirm it is you.'
+          : 'This permanently deletes your profile and every transaction. Enter your password to confirm.'),
+        social ? null : field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'current-password' } }),
         formError(),
         h('div', { class: 'row' },
           h('button', { type: 'submit', class: 'btn danger' }, 'Yes, delete everything'),
           cancel));
       dangerBox.replaceChildren(confirmForm);
-      confirmForm.elements.password.focus();
+      (social ? confirmForm.querySelector('[type="submit"]') : confirmForm.elements.password).focus();
     }
     showDelete();
 
@@ -796,6 +905,7 @@
           h('dl', { class: 'account-details', style: 'margin-top:0.75rem' },
             h('dt', null, 'Username'), h('dd', null, '@' + user.username),
             h('dt', null, 'Email'), h('dd', null, user.email),
+            user.provider !== 'password' ? [h('dt', null, 'Sign-in'), h('dd', null, BT.socialLabel(user.provider))] : null,
             h('dt', null, 'Birthday'), h('dd', null, BT.longDate(user.birthday)))),
         h('section', { class: 'section' }, h('h2', { style: 'margin-bottom:0.75rem' }, 'Delete account'), dangerBox)));
   }

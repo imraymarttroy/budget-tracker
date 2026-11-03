@@ -192,6 +192,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .btn.primary { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
 .btn.primary:hover:not(:disabled) { opacity: 0.85; background: var(--ink); }
 .btn.full { width: 100%; }
+.social-btn { gap: 0.625rem; }
+.social-logo { display: inline-flex; }
+.social-logo svg { width: 1.25rem; height: 1.25rem; }
+.or-divider { display: flex; align-items: center; gap: 0.75rem; margin: 1.25rem 0; color: var(--ink-2); font-size: 0.875rem; }
+.or-divider::before, .or-divider::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
 .btn.danger { border-color: var(--critical); color: var(--critical-ink); }
 
 .link {
@@ -559,3 +564,163 @@ a.link { display: inline-flex; align-items: center; }
 .note-body a { color: inherit; }
 .empty-state { text-align: center; padding: 3rem 1rem; }
 .empty-state .btn { margin-top: 1rem; }
+
+/* ---------- Sign in and sign up (dark, Threads-style layout, PassbookHub red) ---------- */
+
+body.auth-body {
+  color-scheme: dark;
+  --page: #101010;
+  --surface: #1e1e1e;
+  --ink: #f3f5f7;
+  --ink-2: #8a8d91;
+  --line: #2e2e2e;
+  --line-strong: #3a3a3a;
+  --wash: rgba(255, 255, 255, 0.06);
+  --critical: #ff5c59;
+  --critical-ink: #ff8a88;
+  --on-ink: #101010;
+  background: #101010;
+}
+
+.auth-page {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(6rem, 18vh, 10rem) 1.25rem 1.5rem;
+}
+
+/* Two soft, blurred brand-red circles drifting slowly behind the form. */
+.auth-page { isolation: isolate; overflow: hidden; }
+.auth-glow { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.auth-glow span {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--accent);
+  filter: blur(90px);
+  opacity: 0.14;
+  will-change: transform;
+}
+.auth-glow span:first-child {
+  width: 26rem; height: 26rem;
+  top: 10%; left: 50%;
+  margin-left: -13rem;
+  animation: glow-a 22s ease-in-out infinite alternate;
+}
+.auth-glow span:last-child {
+  width: 16rem; height: 16rem;
+  bottom: 8%; left: 50%;
+  opacity: 0.08;
+  animation: glow-b 28s ease-in-out infinite alternate;
+}
+@keyframes glow-a {
+  0% { transform: translate(-18vw, -4vh) scale(1); }
+  50% { transform: translate(6vw, 6vh) scale(1.12); }
+  100% { transform: translate(16vw, -2vh) scale(0.94); }
+}
+@keyframes glow-b {
+  0% { transform: translate(14vw, 0) scale(1); }
+  100% { transform: translate(-24vw, -10vh) scale(1.2); }
+}
+@media (prefers-reduced-motion: reduce) { .auth-glow span { animation: none; } }
+
+.auth-main {
+  position: relative;
+  width: 100%;
+  max-width: 23.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.auth-wordmark {
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: -0.01em;
+}
+.auth-wordmark-mark { display: block; width: 1.75rem; }
+.auth-wordmark-mark svg { display: block; width: 100%; height: auto; }
+.auth-wordmark-mark .m-box { fill: var(--accent); }
+.auth-wordmark-mark .m-inner, .auth-wordmark-mark .m-cut { display: none; }
+.auth-wordmark-mark .m-line { stroke: #fffffa; stroke-width: 3; }
+
+.auth-title { text-align: center; font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem; }
+
+/* Fields and buttons */
+.auth-page .stack { gap: 0.5rem; }
+.auth-page .field { gap: 0.25rem; }
+.auth-page .field label { font-size: 0.8125rem; color: var(--ink-2); }
+.auth-page .quiet-label label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.auth-page input {
+  min-height: 3.375rem;
+  padding-inline: 1rem !important;
+  background: var(--surface) !important;
+  border: 1px solid transparent !important;
+  border-radius: 12px !important;
+  color: var(--ink);
+}
+.auth-page input:focus-visible { border-color: var(--line-strong) !important; outline: none; }
+.auth-page input::placeholder { color: #777; }
+.auth-page .with-toggle button { border-radius: 0 12px 12px 0; }
+.auth-page .hint { font-size: 0.75rem; }
+.auth-page .btn { min-height: 3.375rem; border-radius: 12px; font-weight: 600; }
+.auth-page .btn.primary { margin-top: 0.25rem; background: var(--accent); border-color: var(--accent); color: #fffffa; }
+.auth-page .btn.primary:hover:not(:disabled) { background: #e8201d; border-color: #e8201d; opacity: 1; }
+.auth-page .notice { margin: 0 0 0.5rem; }
+
+.auth-forgot { text-align: center; margin-top: 0.5rem; }
+.auth-forgot a { color: var(--ink-2); text-decoration: none; font-size: 0.9375rem; }
+.auth-forgot a:hover { color: var(--ink); }
+
+.auth-page .or-divider { justify-content: center; margin: 1rem 0; }
+.auth-page .or-divider::before, .auth-page .or-divider::after { flex: 0 0 3rem; }
+
+/* Big Threads-style cards for Google and Facebook */
+.auth-page .social-btn {
+  min-height: 4.75rem;
+  padding: 0.75rem 1.25rem;
+  justify-content: space-between;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  color: var(--ink);
+  font-weight: 700;
+}
+.auth-page .social-btn:hover:not(:disabled) { background: var(--wash); }
+.auth-page .social-logo {
+  width: 2.75rem; height: 2.75rem;
+  align-items: center; justify-content: center;
+  border-radius: 12px;
+  background: #fff;
+}
+.auth-page .social-logo svg { width: 1.5rem; height: 1.5rem; }
+.social-label { flex: 1; text-align: center; }
+.social-chevron { width: 2.75rem; text-align: right; font-size: 1.75rem; line-height: 1; color: var(--ink-2); }
+
+.auth-switch { margin-top: 1.25rem; text-align: center; color: var(--ink-2); font-size: 0.9375rem; }
+.auth-switch a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.auth-switch a:hover { text-decoration: underline; }
+
+.auth-footer {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 1rem;
+  padding-top: 2.5rem;
+  color: var(--ink-2);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 600px) {
+  .auth-page { padding-top: 4rem; }
+}

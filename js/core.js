@@ -65,6 +65,10 @@ window.BT = (function () {
 
   const cache = { authUser: null, profile: null, txs: [], loadError: false };
   let signUpInProgress = false;
+  let redirectError = null;
+
+  /** A sign-in problem from coming back after a Google or Facebook redirect. Read once. */
+  function takeRedirectError() { const message = redirectError; redirectError = null; return message; }
 
   async function loadSession(authUser) {
     cache.authUser = authUser;
@@ -86,6 +90,10 @@ window.BT = (function () {
 
   /** Calls back whenever someone signs in or out, after their data has loaded. */
   function onSessionChange(callback) {
+    A().getRedirectResult(window.FB.auth).catch(function (error) {
+      const friendlyError = socialError(error);
+      if (friendlyError) { redirectError = friendlyError.message; callback(); }
+    });
     A().onAuthStateChanged(window.FB.auth, async function (authUser) {
       if (signUpInProgress) return;
       await loadSession(authUser);
@@ -96,15 +104,16 @@ window.BT = (function () {
   function sessionState() {
     if (!cache.authUser) return 'signed-out';
     if (cache.loadError) return 'error';
-    if (!cache.profile) return 'orphan';
+    if (!cache.profile) return socialProvider(cache.authUser) ? 'complete' : 'orphan';
     return 'ready';
   }
 
   function currentUser() {
     if (!cache.authUser || !cache.profile) return null;
     return Object.assign({}, cache.profile, {
-      email: cache.authUser.email,
-      verified: cache.authUser.emailVerified
+      email: accountEmail(cache.authUser),
+      verified: cache.authUser.emailVerified,
+      provider: socialProvider(cache.authUser) && !hasPassword(cache.authUser) ? socialProvider(cache.authUser) : 'password'
     });
   }
 
@@ -283,6 +292,114 @@ window.BT = (function () {
     }
   }
 
+  /* ---------- Google and Facebook ---------- */
+
+  const SOCIAL = {
+    google: { label: 'Google', make: function () { return new (A().GoogleAuthProvider)(); } },
+    facebook: {
+      label: 'Facebook',
+      make: function () { const p = new (A().FacebookAuthProvider)(); p.addScope('email'); return p; }
+    }
+  };
+  const PROVIDER_IDS = { 'google.com': 'google', 'facebook.com': 'facebook' };
+
+  /** 'google', 'facebook' or null for the first social account linked to this sign-in. */
+  function socialProvider(authUser) {
+    const match = ((authUser && authUser.providerData) || []).find(function (p) { return PROVIDER_IDS[p.providerId]; });
+    return match ? PROVIDER_IDS[match.providerId] : null;
+  }
+
+  function hasPassword(authUser) {
+    return ((authUser && authUser.providerData) || []).some(function (p) { return p.providerId === 'password'; });
+  }
+
+  function accountEmail(authUser) {
+    if (!authUser) return null;
+    if (authUser.email) return authUser.email;
+    const withEmail = (authUser.providerData || []).find(function (p) { return p.email; });
+    return withEmail ? withEmail.email : null;
+  }
+
+  /** Turns a Google or Facebook sign-in error into a UserError, or null when the person just closed the window. */
+  function socialError(error) {
+    const code = (error && error.code) || '';
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || code === 'auth/user-cancelled') return null;
+    const messages = {
+      'auth/account-exists-with-different-credential': 'That email already has a PassbookHub account. Sign in the way you did before (email and password, Google or Facebook).',
+      'auth/operation-not-allowed': 'This sign-in option is not available yet. Use your email and password for now.',
+      'auth/unauthorized-domain': 'This sign-in option is not available on this website yet. Use your email and password for now.',
+      'auth/user-disabled': 'This account has been turned off.'
+    };
+    if (messages[code]) { console.error(error); return new UserError(messages[code]); }
+    return friendly(error);
+  }
+
+  /** Opens Google or Facebook. The session listener redraws once the person is signed in. */
+  async function socialSignIn(which) {
+    const provider = SOCIAL[which].make();
+    try {
+      await A().signInWithPopup(window.FB.auth, provider);
+    } catch (error) {
+      if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
+        await A().signInWithRedirect(window.FB.auth, provider);
+        return;
+      }
+      const friendlyError = socialError(error);
+      if (friendlyError) throw friendlyError;
+    }
+  }
+
+  /** Validates the extra details a Google or Facebook sign-up still needs. */
+  function validateSocialProfile(input, onDate) {
+    const errors = validateSignUp(Object.assign({}, input, { password: 'placeholder', email: 'x@x.xx' }), onDate);
+    delete errors.password;
+    delete errors.email;
+    return errors;
+  }
+
+  /** Saves the profile for someone who signed in with Google or Facebook for the first time. */
+  async function completeSocialProfile(input) {
+    const authUser = window.FB.auth.currentUser;
+    if (!authUser) throw new UserError('You are signed out. Sign in again.');
+    if (!accountEmail(authUser)) {
+      throw new UserError('Your ' + SOCIAL[socialProvider(authUser)].label + ' account has no email address. Sign up with your email instead.');
+    }
+    const taken = await F().getDoc(nameDoc(input.username)).catch(function (e) { throw friendly(e); });
+    if (taken.exists()) throw new FieldError({ username: 'That username is taken.' });
+
+    const profile = {
+      name: input.name,
+      birthday: input.birthday,
+      username: input.username,
+      profileDone: false,
+      avatar: null,
+      bio: '',
+      currency: guessCurrency(),
+      createdAt: Date.now()
+    };
+    try {
+      const batch = F().writeBatch(window.FB.db);
+      batch.set(nameDoc(input.username), { uid: authUser.uid });
+      batch.set(userDoc(authUser.uid), profile);
+      await batch.commit();
+    } catch (error) {
+      if (error.code === 'permission-denied') throw new FieldError({ username: 'That username is taken.' });
+      throw friendly(error);
+    }
+    if (!authUser.displayName) await A().updateProfile(authUser, { displayName: input.name }).catch(function () {});
+    /* Google emails come verified. Facebook ones usually do not, so they get the usual link. */
+    if (!authUser.emailVerified) await sendVerification(authUser).catch(function (e) { console.error(e); });
+    await loadSession(authUser);
+  }
+
+  /** Name to prefill when finishing a Google or Facebook sign-up. */
+  function socialName() {
+    const user = window.FB.auth.currentUser;
+    return (user && user.displayName) || '';
+  }
+
+  function socialLabel(which) { return SOCIAL[which] ? SOCIAL[which].label : ''; }
+
   async function updateUser(id, changes) {
     try {
       await F().updateDoc(userDoc(id), changes);
@@ -299,12 +416,21 @@ window.BT = (function () {
     if (user) await user.delete().catch(function () { return A().signOut(window.FB.auth); });
   }
 
-  /** Deletes every transaction, the profile, the username and the sign-in account. Needs the password again. */
+  /** Deletes every transaction, the profile, the username and the sign-in account. Needs the password again,
+      or a fresh Google or Facebook sign-in for accounts without a password. */
   async function deleteAccount(password) {
     const user = window.FB.auth.currentUser;
     try {
-      await A().reauthenticateWithCredential(user, A().EmailAuthProvider.credential(user.email, password));
+      if (hasPassword(user)) {
+        await A().reauthenticateWithCredential(user, A().EmailAuthProvider.credential(user.email, password));
+      } else {
+        await A().reauthenticateWithPopup(user, SOCIAL[socialProvider(user)].make());
+      }
     } catch (error) {
+      if (!hasPassword(user)) {
+        const friendlyError = socialError(error);
+        throw friendlyError || new UserError('Account not deleted. Confirm with ' + SOCIAL[socialProvider(user)].label + ' to delete it.');
+      }
       if (['auth/invalid-credential', 'auth/wrong-password', 'auth/invalid-login-credentials'].indexOf(error.code) !== -1) {
         throw new FieldError({ password: 'That password is not correct.' });
       }
@@ -491,6 +617,8 @@ window.BT = (function () {
     validateSignUp: validateSignUp, validatePassword: validatePassword,
     createUser: createUser, updateUser: updateUser, deleteAccount: deleteAccount, discardOrphan: discardOrphan,
     signIn: signIn, signOut: signOut,
+    socialSignIn: socialSignIn, socialLabel: socialLabel, socialName: socialName, takeRedirectError: takeRedirectError,
+    validateSocialProfile: validateSocialProfile, completeSocialProfile: completeSocialProfile,
     sendVerification: sendVerification, refreshVerified: refreshVerified, sendPasswordReset: sendPasswordReset, lastEmailSent: lastEmailSent,
     listTx: listTx, addTx: addTx, updateTx: updateTx, deleteTx: deleteTx, restoreTx: restoreTx, monthTx: monthTx,
     summarize: summarize, bucketStatus: bucketStatus, formatMoney: formatMoney, toCsv: toCsv
