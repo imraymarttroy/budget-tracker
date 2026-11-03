@@ -64,6 +64,8 @@
     profile: '<circle cx="10" cy="7" r="3.25"/><path d="M3.5 17c.8-3 3.4-4.75 6.5-4.75s5.7 1.75 6.5 4.75"/>',
     pending: '<circle cx="10" cy="10" r="7.5"/><path d="M10 6v4l2.5 2"/>',
     minimize: '<path d="M5 10h10"/>',
+    uncircle: '<circle cx="8" cy="7" r="3"/><path d="M2.5 16.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5M13 8h5"/>',
+    block: '<circle cx="10" cy="10" r="7"/><path d="m5.1 5.1 9.8 9.8"/>',
     pin: '<path d="M12.5 2.5 17.5 7.5 15 8.5 11.5 12 11 16 4 9l4-.5L11.5 5z"/><path d="m7.5 12.5-4 4"/>'
   };
 
@@ -270,7 +272,7 @@
       view = back;
       setTimeout(function () { if (username) dock.open(username); else dock.openPicker(); }, 0);
     }
-    if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); SOC.stopWatchingChats(); SOC.stopWatchingTrust(); }
+    if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); SOC.stopWatchingChats(); SOC.stopWatchingTrust(); SOC.stopPresence(); onlineCache = null; }
     if (state.cleanup) { state.cleanup(); state.cleanup = null; }
     state.onTrustChange = null;
     if (view === 'person' || view === 'shared') {
@@ -1018,9 +1020,33 @@
     }
     showDelete();
 
+    /* Two tabs: Profile settings (everything below) and Circle settings (blocked people). */
+    const profilePanel = h('div', { id: 'panel-set-profile', role: 'tabpanel', 'aria-labelledby': 'tab-set-profile', style: 'max-width:26rem' });
+    const circlePanel = h('div', { id: 'panel-set-circle', role: 'tabpanel', 'aria-labelledby': 'tab-set-circle', hidden: true }, circleSettings());
+    const tabs = [['profile', 'Profile settings', profilePanel], ['circle', 'Circle settings', circlePanel]];
+    const tabButtons = tabs.map(function (t, i) {
+      return h('button', {
+        type: 'button', role: 'tab', class: 'dash-tab', id: 'tab-set-' + t[0], 'aria-controls': 'panel-set-' + t[0],
+        onclick: function () { pick(i); },
+        onkeydown: function (event) {
+          if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); const j = (i + 1) % 2; pick(j); tabButtons[j].focus(); }
+        }
+      }, t[1]);
+    });
+    function pick(i) {
+      state.settingsTab = tabs[i][0];
+      tabs.forEach(function (t, j) {
+        tabButtons[j].setAttribute('aria-selected', i === j ? 'true' : 'false');
+        tabButtons[j].tabIndex = i === j ? 0 : -1;
+        t[2].hidden = i !== j;
+      });
+    }
+    pick(state.settingsTab === 'circle' ? 1 : 0);
     return h('div', { class: 'wide' },
-      h('div', { style: 'max-width:26rem' },
-        h('h1', { style: 'margin-bottom:1.5rem' }, 'Settings'),
+      h('h1', { style: 'margin-bottom:1rem' }, 'Settings'),
+      h('div', { class: 'dash-tabs', role: 'tablist', 'aria-label': 'Settings' }, tabButtons),
+      circlePanel,
+      (profilePanel.append(
         form,
         h('section', { class: 'section' },
           h('h2', null, 'Account'),
@@ -1029,7 +1055,37 @@
             h('dt', null, 'Email'), h('dd', null, user.email),
             user.provider !== 'password' ? [h('dt', null, 'Sign-in'), h('dd', null, BT.socialLabel(user.provider))] : null,
             h('dt', null, 'Birthday'), h('dd', null, BT.longDate(user.birthday)))),
-        h('section', { class: 'section' }, h('h2', { style: 'margin-bottom:0.75rem' }, 'Delete account'), dangerBox)));
+        h('section', { class: 'section' }, h('h2', { style: 'margin-bottom:0.75rem' }, 'Delete account'), dangerBox)), profilePanel));
+  }
+
+  /** Circle settings: people you blocked, with Unblock. */
+  function circleSettings() {
+    const list = h('div', null, h('p', { class: 'muted small' }, 'Loading…'));
+    function draw() {
+      SOC.blockedList().then(function (people) {
+        if (!people.length) { list.replaceChildren(h('p', { class: 'empty' }, 'You haven\u2019t blocked anyone.')); return; }
+        list.replaceChildren(h('ul', { class: 'people' }, people.map(function (b) {
+          const unblock = h('button', { type: 'button', class: 'btn small' }, 'Unblock');
+          unblock.addEventListener('click', async function () {
+            const ok = await ask({ title: 'Unblock ' + (b.name || '@' + b.username) + '?', body: 'They will show up in your search again and can send you a circle request. They won\u2019t be added back to your circle.', yes: 'Unblock', no: 'Cancel' });
+            if (!ok) return;
+            unblock.disabled = true;
+            try { await SOC.unblockPerson(b.id); toast((b.name || 'They') + ' is unblocked.'); draw(); }
+            catch (error) { unblock.disabled = false; toast(error.message); }
+          });
+          const person = { id: b.id, name: b.name || b.username || 'Someone', username: b.username || '', avatar: null };
+          return h('li', { class: 'person' },
+            h('span', { class: 'person-link' }, avatar(person, null, 2.75),
+              h('span', { class: 'person-names' }, h('strong', null, person.name), person.username ? h('span', { class: 'small muted' }, '@' + person.username) : null)),
+            unblock);
+        })));
+      }).catch(function (error) { list.replaceChildren(h('p', { class: 'empty' }, error.message)); });
+    }
+    draw();
+    return h('div', { style: 'max-width:36rem' },
+      h('h2', null, 'Blocked people'),
+      h('p', { class: 'muted small', style: 'margin:0.25rem 0 0.75rem' }, 'People you block are removed from your circle, won\u2019t show up when you search, and can\u2019t send you a circle request.'),
+      list);
   }
 
   /* ---------- Sidebar ---------- */
@@ -1084,6 +1140,27 @@
     return button;
   }
 
+  /* "3 online": people in your circle with the app open right now. Hidden when the sidebar is collapsed. */
+  let onlineCache = null;
+  function onlineBadge() {
+    const box = h('div', { class: 'sidebar-online', 'aria-live': 'polite' });
+    function draw(people) {
+      if (!box.isConnected && box.parentNode) return;
+      const n = people.length;
+      box.replaceChildren(h('span', { class: 'online-dot' + (n ? ' on' : ''), 'aria-hidden': 'true' }),
+        h('span', null, h('strong', { class: 'num' }, String(n)), ' online'));
+      box.title = n ? people.map(function (p) { return p.name; }).join(', ') : 'No one from your circle is online';
+      box.setAttribute('aria-label', n + ' people from your circle online' + (n ? ': ' + box.title : ''));
+    }
+    function load() {
+      SOC.onlineCircle().then(function (people) { onlineCache = people; draw(people); }).catch(function () {});
+    }
+    if (onlineCache) draw(onlineCache); else box.replaceChildren(h('span', { class: 'online-dot', 'aria-hidden': 'true' }), h('span', null, '\u2013 online'));
+    load();
+    const timer = setInterval(function () { if (!box.isConnected) { clearInterval(timer); return; } load(); }, 60 * 1000);
+    return box;
+  }
+
   /* Sidebar collapse icon (a panel with an arrow). Markup is a constant. */
   function sideIcon() {
     const holder = document.createElement('span');
@@ -1112,6 +1189,7 @@
     SOC.watchNotifications();
     SOC.watchChats();
     SOC.watchTrust();
+    SOC.startPresence();
   }
 
   /** "Ana's dashboard" links for the dashboards shared with you. */
@@ -1172,7 +1250,7 @@
       h('div', { class: 'sidebar-top' },
         h('a', { class: 'brand sidebar-brand', href: '#dashboard', 'aria-label': 'PassbookHub' }, logoMark('sidebar-mark'), h('span', { class: 'sidebar-word' }, 'PassbookHub')),
         collapseBtn),
-      h('a', { class: 'sidebar-me', href: '#profile' },
+      h('a', { class: 'sidebar-me', href: '#profile', title: 'Your profile', 'aria-current': current === 'profile' ? 'page' : null },
         avatar(user, user.avatar, 2.25),
         h('span', { class: 'sidebar-me-text' }, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username))),
       h('nav', { 'aria-label': 'Main' },
@@ -1181,7 +1259,6 @@
             h('span', { class: 'nav-pin', title: 'Private: only you can see your dashboard' }, icon('pin'), h('span', { class: 'vh' }, '(private)'))),
           sharedNav(view),
           item('feed', '#feed', 'Feed'),
-          item('profile', '#profile', 'Profile'),
           item('circle', '#circle', 'Circle'),
           h('li', null, h('button', {
             type: 'button',
@@ -1193,10 +1270,13 @@
               SOC.stopWatching();
               SOC.stopWatchingChats();
               SOC.stopWatchingTrust();
+              SOC.stopPresence();
+              onlineCache = null;
               location.hash = '#signin';
               BT.signOut();
             }
-          }, navIcon('signout'), h('span', { class: 'nav-label' }, 'Sign out'))))));
+          }, navIcon('signout'), h('span', { class: 'nav-label' }, 'Sign out'))))),
+      onlineBadge());
     drawBadges();
     const shellEl = h('div', { class: 'app-shell' },
       h('div', { class: 'bg-orbs', 'aria-hidden': 'true' }, h('span'), h('span')),
@@ -2221,10 +2301,35 @@
     }
     input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(runSearch, 300); });
 
+    function memberActions(person, row) {
+      const first = person.name.split(' ')[0];
+      const remove = h('button', { type: 'button', class: 'icon-btn person-icon', 'aria-label': 'Remove ' + person.name + ' from your circle', title: 'Uncircle' }, icon('uncircle'));
+      const block = h('button', { type: 'button', class: 'icon-btn person-icon danger-icon', 'aria-label': 'Block ' + person.name, title: 'Block' }, icon('block'));
+      remove.addEventListener('click', async function () {
+        const ok = await ask({ title: 'Remove ' + first + ' from your circle?', body: 'You won\u2019t see each other\u2019s circle posts or be able to message. You can add each other again later.', yes: 'Uncircle', no: 'Cancel' });
+        if (!ok) return;
+        remove.disabled = block.disabled = true;
+        try { await SOC.removeFromCircle(person.id); toast(person.name + ' was removed from your circle.'); row.remove(); }
+        catch (error) { remove.disabled = block.disabled = false; toast(error.message); }
+      });
+      block.addEventListener('click', async function () {
+        const ok = await ask({ title: 'Block ' + first + '?', body: first + ' will be removed from your circle, won\u2019t show up in your search, and can\u2019t send you a circle request. You can unblock them in Settings \u2192 Circle settings.', yes: 'Block', no: 'Cancel' });
+        if (!ok) return;
+        remove.disabled = block.disabled = true;
+        try { await SOC.blockPerson(person); toast(person.name + ' is blocked.'); row.remove(); }
+        catch (error) { remove.disabled = block.disabled = false; toast(error.message); }
+      });
+      return h('div', { class: 'person-actions' }, messageButton(person), remove, block);
+    }
+
     circleReady.then(function (circle) {
       const people = circle.people;
       members.replaceChildren(people.length
-        ? h('ul', { class: 'people' }, people.map(function (p) { return personRow(p, messageButton(p)); }))
+        ? h('ul', { class: 'people' }, people.map(function (p) {
+            const row = personRow(p, null);
+            row.appendChild(memberActions(p, row));
+            return row;
+          }))
         : h('p', { class: 'empty' }, 'Your circle is empty. Search for people above to add them.'));
     }).catch(function (error) { members.replaceChildren(h('p', { class: 'empty' }, error.message)); });
 

@@ -178,12 +178,23 @@ service cloud.firestore {
         allow delete: if signedIn() && (request.auth.uid == uid || request.auth.uid == member);
       }
 
-      // requests/{from}: someone asking to join this person's circle.
+      // requests/{from}: someone asking to join this person's circle. Not allowed if this person blocked them.
       match /requests/{from} {
         allow read, delete: if signedIn() && (request.auth.uid == uid || request.auth.uid == from);
         allow create: if verified() && request.auth.uid == from && from != uid
           && request.resource.data.keys().hasOnly(['createdAt'])
-          && !exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(from));
+          && !exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(from))
+          && !exists(/databases/$(database)/documents/profiles/$(uid)/blocked/$(from));
+      }
+
+      // blocked/{other}: people this person blocked. Only they can see their list.
+      match /blocked/{other} {
+        allow read, delete: if signedInAs(uid);
+        allow create, update: if signedInAs(uid) && other != uid
+          && request.resource.data.keys().hasOnly(['at', 'name', 'username'])
+          && request.resource.data.at is int
+          && request.resource.data.name is string && request.resource.data.name.size() <= 60
+          && request.resource.data.username is string && request.resource.data.username.size() <= 20;
       }
 
       // notifications/{id}: only the owner reads them. Others may only leave the two kinds below.
@@ -210,6 +221,16 @@ service cloud.firestore {
         allow delete: if signedInAs(uid)
           || (signedIn() && resource.data.from == request.auth.uid && resource.data.type == 'request');
       }
+    }
+
+    // presence/{uid}: when someone last had the app open. Readable by them and their circle.
+    match /presence/{uid} {
+      allow read: if signedInAs(uid)
+        || (signedIn() && exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid)));
+      allow delete: if signedInAs(uid);
+      allow create, update: if signedInAs(uid)
+        && request.resource.data.keys().hasOnly(['at'])
+        && request.resource.data.at is int;
     }
 
     // chats/{a_b}: one conversation between two people in each other's circle.
