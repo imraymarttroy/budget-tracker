@@ -141,12 +141,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 [aria-invalid="true"] { border-color: var(--critical) !important; }
 
 .with-toggle { position: relative; }
-.with-toggle input { padding-right: 4rem !important; }
+.with-toggle input { padding-right: 3rem !important; }
 .with-toggle button {
   position: absolute;
   top: 0; right: 0;
   height: 100%;
-  min-width: 3.5rem;
+  min-width: 3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 0 6px 6px 0;
   background: transparent;
@@ -156,6 +159,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   cursor: pointer;
 }
 .with-toggle button:hover { color: var(--ink); }
+.with-toggle button svg { width: 1.25rem; height: 1.25rem; }
 
 .code-input { font-size: 1.25rem !important; letter-spacing: 0.3em; font-variant-numeric: tabular-nums; }
 
