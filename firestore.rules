@@ -141,8 +141,10 @@ service cloud.firestore {
         allow read: if signedInAs(uid) || (signedIn() && inCircle());
         allow delete: if signedInAs(uid);
         allow create, update: if signedInAs(uid) && verified() && docId == 'current'
-          && request.resource.data.keys().hasOnly(['text', 'at'])
-          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 60
+          && request.resource.data.keys().hasOnly(['text', 'at', 'gif'])
+          && request.resource.data.text is string && request.resource.data.text.size() <= 20
+          && (!('gif' in request.resource.data) || (request.resource.data.gif is string && request.resource.data.gif.size() < 600000))
+          && (request.resource.data.text.size() > 0 || 'gif' in request.resource.data)
           && request.resource.data.at is int;
       }
 

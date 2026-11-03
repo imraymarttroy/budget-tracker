@@ -1041,7 +1041,7 @@
     messages: '<path d="M3.5 5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-3.5 3v-3a2 2 0 0 1-2-2z"/>',
     feed: '<rect x="3" y="3" width="14" height="14" rx="2.5"/><path d="M6.5 7h7M6.5 10h7M6.5 13h4"/>',
     notifications: '<path d="M5 13.5V9a5 5 0 0 1 10 0v4.5l1.5 1.5h-13z"/><path d="M8.5 17.5a1.6 1.6 0 0 0 3 0"/>',
-    settings: '<circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/>',
+    settings: '<path d="M8.7 2.5h2.6l.45 2.05a5.6 5.6 0 0 1 1.5.87l2-.66 1.3 2.25-1.56 1.4a5.7 5.7 0 0 1 0 1.73l1.56 1.4-1.3 2.25-2-.66a5.6 5.6 0 0 1-1.5.87l-.45 2.05H8.7l-.45-2.05a5.6 5.6 0 0 1-1.5-.87l-2 .66-1.3-2.25 1.56-1.4a5.7 5.7 0 0 1 0-1.73l-1.56-1.4 1.3-2.25 2 .66a5.6 5.6 0 0 1 1.5-.87z"/><circle cx="10" cy="10" r="2.4"/>',
     signout: '<path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H7.5"/>'
   };
 
@@ -1623,12 +1623,12 @@
     function drawHeroNote(note) {
       if (opts.mine) {
         heroNote.replaceChildren(h('button', {
-          type: 'button', class: 'note-bubble big' + (note ? '' : ' empty'),
-          'aria-label': note ? 'Your note: ' + note.text + '. Change note' : 'Add a note',
+          type: 'button', class: 'note-bubble big' + (note ? '' : ' empty') + (note && note.gif ? ' has-gif' : ''),
+          'aria-label': note ? 'Your note: ' + (note.text || 'GIF') + '. Change note' : 'Add a note',
           onclick: function () { openNoteDialog(note, drawHeroNote); }
-        }, note ? note.text : '+ Add a note'));
+        }, note ? noteContent(note) : '+ Add a note'));
       } else {
-        heroNote.replaceChildren(note ? h('div', { class: 'note-bubble big', title: 'Note \u00b7 ' + timeAgo(note.at) }, note.text) : '');
+        heroNote.replaceChildren(note ? h('div', { class: 'note-bubble big' + (note.gif ? ' has-gif' : ''), title: 'Note \u00b7 ' + timeAgo(note.at) }, noteContent(note)) : '');
       }
     }
     if (opts.mine || opts.rel === 'circle') {
@@ -1663,16 +1663,16 @@
         circleList.replaceChildren(h('ul', { class: 'pf-circle-people' }, people.slice(0, 8).map(function (p) {
           const slot = h('span', { class: 'note-slot' });
           SOC.loadNote(p.id).then(function (note) {
-            if (note) slot.replaceChildren(h('span', { class: 'note-bubble', title: note.text + ' \u00b7 ' + timeAgo(note.at) }, note.text));
+            if (note) slot.replaceChildren(h('span', { class: 'note-bubble' + (note.gif ? ' has-gif' : ''), title: (note.text || 'GIF') + ' \u00b7 ' + timeAgo(note.at) }, noteContent(note)));
           }).catch(function () {});
           return h('li', null, h('a', { href: '#u/' + p.username, title: p.name }, slot, avatar(p, p.avatar, 2.5), h('span', { class: 'small' }, p.name.split(' ')[0])));
         })), people.length > 8 ? h('a', { class: 'small', href: '#circle' }, 'See all ' + people.length) : '');
       }).catch(function () { circleList.replaceChildren(h('p', { class: 'small muted' }, 'We could not load your circle.')); });
     }
 
-    function stat(iconName, label, value, sub) {
+    function stat(iconName, label, value, sub, tool) {
       return h('div', { class: 'pf-stat' },
-        h('span', { class: 'pf-stat-label' }, pIcon(iconName), label),
+        h('span', { class: 'pf-stat-label' }, pIcon(iconName), label, tool || null),
         value, sub);
     }
     function valueNode(text) { return h('span', { class: 'pf-stat-value' + (/^[0-9–]+$/.test(text) ? '' : ' long'), title: text }, text); }
@@ -1682,17 +1682,47 @@
     const savingsSub = h('span', { class: 'pf-stat-sub small' });
     const bdayValue = h('span', { class: 'pf-stat-value long' }, '–');
     const bdaySub = h('span', { class: 'pf-stat-sub small' });
-    function shareNote(on) {
-      return on ? 'Shown to your circle' : ['Only you · ', h('button', { type: 'button', class: 'link small', onclick: opts.onEdit }, 'Show to circle')];
+    /* One icon per stat: open eye = your circle can see it, closed eye = only you. One tap switches. */
+    let myShare = null;
+    function shareToggle(which, label) {
+      const btn = h('button', { type: 'button', class: 'share-eye' });
+      function draw() {
+        const on = !!(myShare && myShare[which]);
+        btn.replaceChildren(icon(on ? 'eye' : 'eyeClosed'));
+        btn.classList.toggle('on', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.setAttribute('aria-label', on ? label + ' is shown to your circle. Hide it' : label + ' is only visible to you. Show it to your circle');
+        btn.title = on ? 'Shown to your circle · tap to hide' : 'Only you · tap to show your circle';
+      }
+      btn.addEventListener('click', async function () {
+        const me = BT.currentUser();
+        const next = { showSavings: !!(myShare && myShare.showSavings), showBirthday: !!(myShare && myShare.showBirthday) };
+        next[which] = !next[which];
+        btn.disabled = true;
+        try {
+          const total = next.showSavings ? await SOC.savingsTotal(null) : null;
+          myShare = await SOC.saveCircleInfo({ showSavings: next.showSavings, savingsCents: total, currency: me.currency, showBirthday: next.showBirthday, birthday: me.birthday });
+          toast(next[which] ? label + ' is now shown to your circle.' : label + ' is now only visible to you.');
+        } catch (error) { toast(error.message); }
+        btn.disabled = false;
+        drawAllToggles();
+      });
+      btn.redraw = draw;
+      draw();
+      return btn;
     }
+    const savingsEye = opts.mine ? shareToggle('showSavings', 'Total savings') : null;
+    const bdayEye = opts.mine ? shareToggle('showBirthday', 'Birthday') : null;
+    function drawAllToggles() { if (savingsEye) savingsEye.redraw(); if (bdayEye) bdayEye.redraw(); }
     if (opts.mine) {
       const me = BT.currentUser();
-      Promise.all([SOC.savingsTotal(null).catch(function () { return null; }), SOC.loadCircleInfo(null).catch(function () { return null; })]).then(function (r) {
-        const total = r[0], info = r[1];
+      if (!me.birthday) bdayEye.hidden = true;
+      Promise.all([SOC.savingsTotal(null).catch(function () { return null; }), SOC.ensureDefaultCircleInfo(me.birthday, me.currency).catch(function () { return null; })]).then(function (r) {
+        const total = r[0];
+        myShare = r[1];
         savingsValue.textContent = total === null ? '–' : BT.formatMoney(total, me.currency);
-        savingsSub.replaceChildren.apply(savingsSub, [].concat(shareNote(info && info.showSavings)));
         bdayValue.textContent = me.birthday ? birthdayLabel(me.birthday.slice(5)) : '–';
-        bdaySub.replaceChildren.apply(bdaySub, [].concat(shareNote(info && info.showBirthday)));
+        drawAllToggles();
         if (total !== null) SOC.publishSavings(total, me.currency);
       });
     } else if (opts.rel === 'circle') {
@@ -1711,8 +1741,8 @@
       opts.mine
         ? stat('circle', 'Circle', circleStat, h('span', { class: 'pf-stat-sub small' }, 'people'))
         : stat('circle', 'Circle', valueNode(opts.rel === 'circle' ? 'Connected' : opts.rel === 'sent' ? 'Requested' : 'Not yet'), opts.rel === 'circle' ? h('span', { class: 'pf-stat-sub small' }, 'in your circle') : null),
-      stat('piggy', 'Total savings', savingsValue, savingsSub),
-      stat('cake', 'Birthday', bdayValue, bdaySub));
+      stat('piggy', 'Total savings', savingsValue, savingsSub, savingsEye),
+      stat('cake', 'Birthday', bdayValue, bdaySub, bdayEye));
 
     function emptyNote(text) {
       return h('p', { class: 'pf-empty small' }, text,
@@ -1868,7 +1898,7 @@
     const showSavings = h('input', { type: 'checkbox', id: 'pf-show-savings' });
     const showBirthday = h('input', { type: 'checkbox', id: 'pf-show-bday' });
     showSavings.checked = !!(info && info.showSavings);
-    showBirthday.checked = !!(info && info.showBirthday);
+    showBirthday.checked = info ? !!info.showBirthday : !!user.birthday;
     const shareBox = h('fieldset', { class: 'pf-fieldset' }, h('legend', null, 'Show to my circle'),
       h('label', { class: 'pf-switch', for: 'pf-show-savings' }, showSavings,
         h('span', null, h('strong', null, 'Total savings'), h('span', { class: 'small muted' }, 'Your wallet + savings total from the Savings tracker. Updates automatically.'))),
@@ -1929,13 +1959,41 @@
 
   /* ---------- Notes ---------- */
 
+  function noteContent(note) {
+    return [note.gif ? h('img', { class: 'note-gif', src: note.gif, alt: note.text ? '' : 'GIF note' }) : null, note.text ? h('span', { class: 'note-text' }, note.text) : null];
+  }
+
   function openNoteDialog(note, onDone) {
     const previous = document.activeElement;
-    const input = h('input', { id: 'f-note', maxlength: SOC.NOTE_MAX, autocomplete: 'off', placeholder: 'Ipon goals, mood, a win today…' });
-    input.value = note ? note.text : '';
+    let gif = note && note.gif ? note.gif : null;
+    const input = h('input', { id: 'f-note', maxlength: SOC.NOTE_MAX, autocomplete: 'off', placeholder: 'Ipon mode \u{1F4AA}' });
+    input.value = note ? note.text || '' : '';
     const count = h('span', { class: 'small muted num' });
     const preview = h('span', { class: 'note-bubble big' });
-    function sync() { count.textContent = input.value.length + ' / ' + SOC.NOTE_MAX; preview.textContent = input.value.trim() || 'Your note'; preview.classList.toggle('empty', !input.value.trim()); }
+    const gifError = h('p', { class: 'error small', hidden: true, style: 'margin:0;color:var(--critical-ink)' });
+    const gifInput = h('input', { type: 'file', accept: 'image/gif', class: 'vh', onchange: function () {
+      const file = gifInput.files[0]; gifInput.value = '';
+      if (!file) return;
+      gifError.hidden = true;
+      if (file.type !== 'image/gif') { gifError.textContent = 'Choose a .gif file.'; gifError.hidden = false; return; }
+      if (file.size > 400 * 1024) { gifError.textContent = 'That GIF is ' + fileSize(file.size) + '. Choose one under 400 KB.'; gifError.hidden = false; return; }
+      const reader = new FileReader();
+      reader.onload = function () { gif = String(reader.result); sync(); };
+      reader.onerror = function () { gifError.textContent = 'We could not read that GIF.'; gifError.hidden = false; };
+      reader.readAsDataURL(file);
+    } });
+    const gifRow = h('div', { class: 'note-gif-row' });
+    function sync() {
+      const chars = Array.from(input.value);
+      if (chars.length > SOC.NOTE_MAX) input.value = chars.slice(0, SOC.NOTE_MAX).join('');
+      count.textContent = Array.from(input.value).length + ' / ' + SOC.NOTE_MAX;
+      const t = input.value.trim();
+      preview.className = 'note-bubble big' + (gif ? ' has-gif' : '') + (!t && !gif ? ' empty' : '');
+      preview.replaceChildren.apply(preview, (!t && !gif) ? ['Your note'] : noteContent({ text: t, gif: gif }).filter(Boolean));
+      gifRow.replaceChildren(
+        h('label', { class: 'btn small note-gif-btn' }, h('span', { class: 'gif-tag', 'aria-hidden': 'true' }, 'GIF'), h('span', null, gif ? 'Change' : 'Add a GIF'), gifInput),
+        gif ? h('button', { type: 'button', class: 'link small', onclick: function () { gif = null; sync(); } }, 'Remove GIF') : null);
+    }
     input.addEventListener('input', sync);
     const errorBox = h('p', { class: 'form-error', role: 'alert', hidden: true });
     const share = h('button', { type: 'submit', class: 'btn primary' }, 'Share');
@@ -1944,14 +2002,15 @@
       onsubmit: async function (event) {
         event.preventDefault();
         share.disabled = true;
-        try { const saved = await SOC.saveNote(input.value); toast('Note shared with your circle.'); close(); onDone(saved); }
+        try { const saved = await SOC.saveNote(input.value, gif); toast('Note shared with your circle.'); close(); onDone(saved); }
         catch (error) { share.disabled = false; errorBox.textContent = error.message; errorBox.hidden = false; }
       }
     },
     h('div', { class: 'acct-head' }, h('h2', { id: 'note-title' }, note ? 'Your note' : 'New note'),
       h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', title: 'Close', onclick: function () { close(); } }, icon('close'))),
     h('div', { class: 'note-preview' }, preview, avatar(BT.currentUser(), BT.currentUser().avatar, 4)),
-    h('div', { class: 'acct-field' }, h('label', { for: 'f-note' }, 'Note'), input, count),
+    h('div', { class: 'acct-field' }, h('label', { for: 'f-note' }, 'Note (up to ' + SOC.NOTE_MAX + ' characters)'), input, count),
+    gifRow, gifError,
     h('p', { class: 'small muted', style: 'margin:0' }, 'Only your circle can see it. It disappears after 24 hours.'),
     errorBox,
     h('div', { class: 'ask-actions' },
@@ -1985,14 +2044,12 @@
     const text = h('p', { class: 'quote-text' });
     const who = h('p', { class: 'quote-who small' });
     const stage = h('blockquote', { class: 'quote-stage' }, kicker, text, who);
-    const bar = h('span', { class: 'quote-bar', 'aria-hidden': 'true' }, h('span'));
     function show(i) {
       if (!quotes.length) return;
       index = (i + quotes.length) % quotes.length;
       const q = quotes[index];
       const story = q[2] === 'story';
       stage.classList.remove('in');
-      bar.classList.remove('run');
       void stage.offsetWidth;
       kicker.textContent = story ? 'Pinoy success story' : '';
       kicker.hidden = !story;
@@ -2000,7 +2057,6 @@
       text.textContent = story ? q[0] : '“' + q[0] + '”';
       who.textContent = '— ' + q[1];
       stage.classList.add('in');
-      if (!hovering) bar.classList.add('run');
     }
     /* Next one every 5 seconds, always. Hovering just holds the current one so it can be read. */
     function tick() {
@@ -2013,11 +2069,11 @@
     }
     const card = h('section', {
       class: 'pf-card pf-quotes', 'aria-label': 'Money motivation',
-      onmouseenter: function () { hovering = true; bar.classList.remove('run'); },
+      onmouseenter: function () { hovering = true; },
       onmouseleave: function () { hovering = false; show(index + 1); tick(); }
     },
       h('div', { class: 'pf-card-head' }, h('h2', null, 'Money motivation')),
-      stage, bar);
+      stage);
     show(0);
     tick();
     return card;

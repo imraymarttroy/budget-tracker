@@ -121,14 +121,16 @@ window.SOC = (function () {
       birthday: opts.showBirthday && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(opts.birthday || '') ? opts.birthday.slice(5) : null,
       updatedAt: Date.now()
     };
-    if (!data.showSavings && !data.showBirthday) {
-      await run(function () { return F().deleteDoc(circleInfoDoc(me())); });
-      myInfo = null;
-      return null;
-    }
     await run(function () { return F().setDoc(circleInfoDoc(me()), data); });
     myInfo = data;
     return data;
+  }
+
+  /** First visit: the birthday (month and day) is shown to your circle unless you turn it off. */
+  async function ensureDefaultCircleInfo(birthday, currency) {
+    if (myInfo === undefined) await loadCircleInfo().catch(function () {});
+    if (myInfo || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(birthday || '')) return myInfo || null;
+    return saveCircleInfo({ showSavings: false, showBirthday: true, birthday: birthday, currency: currency });
   }
 
   /** Keeps the shared savings total current. Does nothing unless sharing is on. */
@@ -148,7 +150,8 @@ window.SOC = (function () {
 
   /* ---------- Notes: a short line above your picture, for your circle, gone after 24 hours ---------- */
 
-  const NOTE_MAX = 60;
+  const NOTE_MAX = 10;
+  const NOTE_GIF_MAX = 600000;
   const NOTE_TTL = 24 * 60 * 60 * 1000;
   const noteDoc = function (uid) { return F().doc(db(), 'profiles', uid, 'note', 'current'); };
 
@@ -164,11 +167,14 @@ window.SOC = (function () {
       throw friendly(error);
     }
   }
-  async function saveNote(text) {
+  /** text up to 10 characters, gif an optional data:image/gif URL. At least one of them. */
+  async function saveNote(text, gif) {
     const clean = String(text || '').trim().replace(/\s+/g, ' ');
-    if (!clean) throw new BT.UserError('Write a short note first.');
-    if (clean.length > NOTE_MAX) throw new BT.UserError('Keep it to ' + NOTE_MAX + ' characters.');
+    if (!clean && !gif) throw new BT.UserError('Write a short note or add a GIF.');
+    if (Array.from(clean).length > NOTE_MAX) throw new BT.UserError('Keep it to ' + NOTE_MAX + ' characters.');
+    if (gif && (typeof gif !== 'string' || gif.indexOf('data:image/gif;base64,') !== 0 || gif.length >= NOTE_GIF_MAX)) throw new BT.UserError('That GIF is too large. Try one under 400 KB.');
     const data = { text: clean, at: Date.now() };
+    if (gif) data.gif = gif;
     await run(function () { return F().setDoc(noteDoc(me()), data); });
     return data;
   }
@@ -793,8 +799,8 @@ window.SOC = (function () {
     watchNotifications: watchNotifications, stopWatching: stopWatching, onNotifications: onNotifications,
     notifications: notifications, unreadCount: unreadCount, markAllRead: markAllRead, dismissNotification: dismissNotification,
     deleteEverything: deleteEverything,
-    loadCircleInfo: loadCircleInfo, saveCircleInfo: saveCircleInfo, publishSavings: publishSavings, savingsTotal: savingsTotal,
-    NOTE_MAX: NOTE_MAX, loadNote: loadNote, saveNote: saveNote, deleteNote: deleteNote,
+    loadCircleInfo: loadCircleInfo, ensureDefaultCircleInfo: ensureDefaultCircleInfo, saveCircleInfo: saveCircleInfo, publishSavings: publishSavings, savingsTotal: savingsTotal,
+    NOTE_MAX: NOTE_MAX, NOTE_GIF_MAX: NOTE_GIF_MAX, loadNote: loadNote, saveNote: saveNote, deleteNote: deleteNote,
     loadCover: loadCover, EDU_MAX: EDU_MAX, WORK_MAX: WORK_MAX, COVER_MAX: COVER_MAX, saveProfileExtras: saveProfileExtras, loadProfile: loadProfile, feedPosts: feedPosts,
     TRUST_ROLES: TRUST_ROLES, watchTrust: watchTrust, stopWatchingTrust: stopWatchingTrust, onTrust: onTrust,
     myTrust: myTrust, trustedMe: trustedMe, trustLoaded: trustLoaded, trustFrom: trustFrom,
