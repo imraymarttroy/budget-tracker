@@ -823,7 +823,7 @@ body.lang-open { overflow: hidden; }
 }
 .lang-card {
   width: min(64rem, 100%);
-  max-height: calc(100dvh - 2rem);
+  height: min(47rem, calc(100dvh - 2rem));
   display: flex; flex-direction: column;
   padding: 1.25rem 1.5rem 1.5rem;
   border-radius: 20px;
