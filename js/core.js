@@ -560,12 +560,33 @@ window.BT = (function () {
     const code = (error && error.code) || '';
     if (code === 'auth/invalid-verification-code') return new FieldError({ otp: 'That code isn\u2019t right. Check your authenticator app and try again.' });
     if (code === 'auth/code-expired' || code === 'auth/totp-challenge-timeout') return new FieldError({ otp: 'That code expired. Enter the newest one.' });
-    if (code === 'auth/requires-recent-login') return new UserError('For your security, sign out and sign in again, then try once more.');
+    if (code === 'auth/requires-recent-login') { const e = new UserError('For your security, confirm it\u2019s you first.'); e.recent = true; return e; }
     if (code === 'auth/operation-not-allowed' || code === 'auth/admin-restricted-operation') return new UserError('Two-step verification isn\u2019t switched on for PassbookHub yet. Please try again later.');
     if (code === 'auth/unverified-email') return new UserError('Verify your email first, then set up two-step verification.');
     if (code === 'auth/too-many-requests') return new UserError('Too many tries. Wait a few minutes and try again.');
     return friendly(error);
   }
+
+  /** Confirms it's you again (password, or a Google window) before a sensitive change. */
+  async function reauthenticate(password) {
+    const user = window.FB.auth.currentUser;
+    try {
+      if (hasPassword(user)) {
+        if (!password) throw new FieldError({ password: 'Enter your password.' });
+        await A().reauthenticateWithCredential(user, A().EmailAuthProvider.credential(user.email, password));
+      } else {
+        await A().reauthenticateWithPopup(user, SOCIAL[socialProvider(user)].make());
+      }
+    } catch (error) {
+      if (error instanceof UserError) throw error;
+      if (error.code === 'auth/multi-factor-auth-required') throw new UserError('Two-step verification is already on for this account.');
+      if (['auth/invalid-credential', 'auth/wrong-password', 'auth/invalid-login-credentials'].indexOf(error.code) !== -1) throw new FieldError({ password: 'That password is not correct.' });
+      const social = socialError(error);
+      if (social) throw social;
+      throw new UserError('Confirmation was cancelled.');
+    }
+  }
+  function usesPassword() { const u = window.FB.auth.currentUser; return !!u && hasPassword(u); }
 
   /** Finishes a sign-in that asked for the authenticator code. */
   async function resolveMfa(pending, code) {
@@ -770,7 +791,7 @@ window.BT = (function () {
     BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES, currencyLabel: currencyLabel, flagUrl: flagUrl,
     RESEND_COOLDOWN_MS: RESEND_COOLDOWN_MS, MIN_AGE: MIN_AGE,
     UserError: UserError, FieldError: FieldError, MfaRequired: MfaRequired, takePendingMfa: takePendingMfa,
-    resolveMfa: resolveMfa, mfaOn: mfaOn, startTotp: startTotp, finishTotp: finishTotp, disableTotp: disableTotp,
+    resolveMfa: resolveMfa, mfaOn: mfaOn, reauthenticate: reauthenticate, usesPassword: usesPassword, startTotp: startTotp, finishTotp: finishTotp, disableTotp: disableTotp,
     today: today, parseDate: parseDate, ageOn: ageOn, monthOf: monthOf, addMonths: addMonths,
     monthLabel: monthLabel, shortDate: shortDate, longDate: longDate, validEmail: validEmail,
     onSessionChange: onSessionChange, sessionState: sessionState, currentUser: currentUser, reloadSession: reloadSession,

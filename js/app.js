@@ -400,12 +400,35 @@
         started = results[0];
         draw(results[1]);
       } catch (error) {
+        if (error && error.recent) { confirmFirst(); return; }
         box.replaceChildren(
           h('p', { class: 'form-error', role: 'alert' }, error.message || 'We could not start two-step verification.'),
           h('div', { class: 'row' },
             h('button', { type: 'button', class: 'btn', onclick: function () { box.replaceChildren(h('p', { class: 'muted small' }, 'Preparing your QR code…')); begin(); } }, 'Try again'),
             opts.onSkip ? h('button', { type: 'button', class: 'link', onclick: opts.onSkip }, 'Continue for now') : null));
       }
+    }
+    /* Firebase wants a fresh sign-in before adding a second step. One tap (Google) or your password. */
+    function confirmFirst() {
+      const pw = BT.usesPassword();
+      const pass = pw ? h('input', { id: 'f-otp-pass', name: 'password', type: 'password', autocomplete: 'current-password' }) : null;
+      const err = h('p', { class: 'error small', role: 'alert', hidden: true });
+      const go = h('button', { type: 'submit', class: 'btn primary' }, pw ? 'Confirm' : 'Confirm with Google');
+      const form = h('form', {
+        class: 'stack', novalidate: true,
+        onsubmit: async function (event) {
+          event.preventDefault();
+          err.hidden = true; go.disabled = true;
+          try { await BT.reauthenticate(pass ? pass.value : null); box.replaceChildren(h('p', { class: 'muted small' }, 'Preparing your QR code\u2026')); begin(); }
+          catch (error) { go.disabled = false; err.textContent = error instanceof BT.FieldError ? error.fields.password || error.message : error.message; err.hidden = false; }
+        }
+      },
+      h('p', { class: 'small' }, h('strong', null, 'Confirm it\u2019s you'), h('br'), h('span', { class: 'muted' }, pw ? 'Enter your password to continue.' : 'Sign in with Google once more to continue.')),
+      pass ? h('div', { class: 'acct-field' }, h('label', { for: 'f-otp-pass' }, 'Password'), pass) : null,
+      err,
+      h('div', { class: 'row' }, go, opts.onCancel ? h('button', { type: 'button', class: 'link', onclick: opts.onCancel }, 'Cancel') : null));
+      box.replaceChildren(form);
+      if (pass) pass.focus();
     }
     function draw(qrcode) {
       const input = codeInput('f-otp-setup');
@@ -475,7 +498,12 @@
                 const ok = await ask({ title: 'Turn off two-step verification?', body: 'You’ll only need your password to sign in. Your account will be less protected.', yes: 'Turn off', no: 'Keep it on' });
                 if (!ok) return;
                 try { await BT.disableTotp(); toast('Two-step verification is off.'); draw(); }
-                catch (error) { toast(error.message); }
+                catch (error) {
+                  if (error && error.recent) {
+                    try { await BT.reauthenticate(BT.usesPassword() ? window.prompt('Enter your password to confirm') : null); await BT.disableTotp(); toast('Two-step verification is off.'); draw(); }
+                    catch (e2) { toast(e2.message || 'Confirmation was cancelled.'); }
+                  } else toast(error.message);
+                }
               } }, 'Turn off')
             : h('button', { type: 'button', class: 'btn primary small', onclick: function () {
                 sec.replaceChildren(h('h2', null, 'Turn on two-step verification'), totpSetup({ onDone: draw, onCancel: draw }));
