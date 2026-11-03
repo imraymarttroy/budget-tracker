@@ -1780,3 +1780,17 @@ button.note-bubble:hover { transform: translateY(-1px); }
 @media (max-width: 560px) {
   .set-hero { flex-direction: column-reverse; align-items: flex-start; }
 }
+
+/* ---------- Account card: address and editing ---------- */
+.set-card .pf-card-head .btn { display: inline-flex; align-items: center; gap: 0.375rem; }
+.set-card .pf-card-head .btn svg { width: 0.9375rem; height: 0.9375rem; }
+.addr { display: flex; flex-direction: column; gap: 0.125rem; }
+.addr-country { display: inline-flex; align-items: center; gap: 0.375rem; font-weight: 600; }
+.addr-country .flag, .set-card .flag { width: 1.25rem; height: auto; border-radius: 2px; box-shadow: 0 0 0 1px var(--line); }
+.country-field { position: relative; }
+.country-field select { padding-left: 2.5rem; }
+.country-field .country-flag { position: absolute; left: 0.75rem; top: 2.15rem; pointer-events: none; }
+.set-card .pf-fieldset { margin-top: 0.25rem; }
+.email-change { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.email-change .notice { margin: 0; padding: 0.75rem; border-radius: 10px; }
+.set-chip img.flag { width: 1.125rem; height: auto; border-radius: 2px; }
