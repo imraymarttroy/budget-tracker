@@ -146,6 +146,36 @@ window.SOC = (function () {
     return snap.docs.reduce(function (t, d) { const a = d.data(); return a.type === 'wallet' || a.type === 'savings' ? t + a.cents : t; }, 0);
   }
 
+  /* ---------- Notes: a short line above your picture, for your circle, gone after 24 hours ---------- */
+
+  const NOTE_MAX = 60;
+  const NOTE_TTL = 24 * 60 * 60 * 1000;
+  const noteDoc = function (uid) { return F().doc(db(), 'profiles', uid, 'note', 'current'); };
+
+  /** The note if it is still fresh, else null. Circle members only (and you). */
+  async function loadNote(uid) {
+    try {
+      const snap = await F().getDoc(noteDoc(uid || me()));
+      if (!snap.exists()) return null;
+      const n = snap.data();
+      return n.at && Date.now() - n.at < NOTE_TTL ? n : null;
+    } catch (error) {
+      if (error && error.code === 'permission-denied') return null;
+      throw friendly(error);
+    }
+  }
+  async function saveNote(text) {
+    const clean = String(text || '').trim().replace(/\s+/g, ' ');
+    if (!clean) throw new BT.UserError('Write a short note first.');
+    if (clean.length > NOTE_MAX) throw new BT.UserError('Keep it to ' + NOTE_MAX + ' characters.');
+    const data = { text: clean, at: Date.now() };
+    await run(function () { return F().setDoc(noteDoc(me()), data); });
+    return data;
+  }
+  async function deleteNote() {
+    await run(function () { return F().deleteDoc(noteDoc(me())); });
+  }
+
   async function loadCover(uid) {
     const snap = await run(function () { return F().getDoc(coverDoc(uid)); });
     return snap.exists() ? snap.data().data : null;
@@ -725,6 +755,7 @@ window.SOC = (function () {
     refs.push(trustDoc(uid));
     refs.push(coverDoc(uid));
     refs.push(circleInfoDoc(uid));
+    refs.push(noteDoc(uid));
     const myAccounts = await run(function () { return F().getDocs(accountsCol(uid)); });
     myAccounts.docs.forEach(function (d) { refs.push(d.ref); });
     const sharedWithMe = await run(function () { return F().getDocs(F().query(F().collection(db(), 'trust'), F().where('member', '==', uid))); });
@@ -763,6 +794,7 @@ window.SOC = (function () {
     notifications: notifications, unreadCount: unreadCount, markAllRead: markAllRead, dismissNotification: dismissNotification,
     deleteEverything: deleteEverything,
     loadCircleInfo: loadCircleInfo, saveCircleInfo: saveCircleInfo, publishSavings: publishSavings, savingsTotal: savingsTotal,
+    NOTE_MAX: NOTE_MAX, loadNote: loadNote, saveNote: saveNote, deleteNote: deleteNote,
     loadCover: loadCover, EDU_MAX: EDU_MAX, WORK_MAX: WORK_MAX, COVER_MAX: COVER_MAX, saveProfileExtras: saveProfileExtras, loadProfile: loadProfile, feedPosts: feedPosts,
     TRUST_ROLES: TRUST_ROLES, watchTrust: watchTrust, stopWatchingTrust: stopWatchingTrust, onTrust: onTrust,
     myTrust: myTrust, trustedMe: trustedMe, trustLoaded: trustLoaded, trustFrom: trustFrom,

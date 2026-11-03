@@ -1616,6 +1616,24 @@
    */
   function profilePage(person, opts) {
     const first = person.name.split(' ')[0];
+    /* Note above the picture: yours (tap to add or change), or theirs if you share a circle. */
+    const heroNote = h('div', { class: 'pf-note-slot' });
+    function drawHeroNote(note) {
+      if (opts.mine) {
+        heroNote.replaceChildren(h('button', {
+          type: 'button', class: 'note-bubble big' + (note ? '' : ' empty'),
+          'aria-label': note ? 'Your note: ' + note.text + '. Change note' : 'Add a note',
+          onclick: function () { openNoteDialog(note, drawHeroNote); }
+        }, note ? note.text : '+ Add a note'));
+      } else {
+        heroNote.replaceChildren(note ? h('div', { class: 'note-bubble big', title: 'Note \u00b7 ' + timeAgo(note.at) }, note.text) : '');
+      }
+    }
+    if (opts.mine || opts.rel === 'circle') {
+      drawHeroNote(null);
+      if (!opts.mine) heroNote.replaceChildren();
+      SOC.loadNote(opts.mine ? null : person.id).then(drawHeroNote).catch(function () {});
+    }
     const hero = h('section', { class: 'pf-card pf-hero' },
       h('div', { class: 'pf-hero-glow', 'aria-hidden': 'true' }, h('span'), h('span')),
       h('div', { class: 'pf-hero-copy' },
@@ -1624,7 +1642,7 @@
         h('p', { class: 'pf-handle' }, '@' + person.username),
         person.bio ? h('p', { class: 'pf-bio' }, person.bio) : (opts.mine ? h('p', { class: 'pf-bio muted-on-brand' }, 'Add a short bio so your circle knows you.') : null),
         opts.actions ? h('div', { class: 'pf-actions' }, opts.actions) : null),
-      h('div', { class: 'pf-hero-photo' }, avatar(person, person.avatar, 9)));
+      h('div', { class: 'pf-hero-photo' }, heroNote, avatar(person, person.avatar, 9)));
     SOC.loadCover(person.id).then(function (cover) {
       if (cover) { hero.style.setProperty('--cover', 'url("' + cover + '")'); hero.classList.add('has-cover'); }
     }).catch(function () {});
@@ -1641,7 +1659,11 @@
           return;
         }
         circleList.replaceChildren(h('ul', { class: 'pf-circle-people' }, people.slice(0, 8).map(function (p) {
-          return h('li', null, h('a', { href: '#u/' + p.username, title: p.name }, avatar(p, p.avatar, 2.5), h('span', { class: 'small' }, p.name.split(' ')[0])));
+          const slot = h('span', { class: 'note-slot' });
+          SOC.loadNote(p.id).then(function (note) {
+            if (note) slot.replaceChildren(h('span', { class: 'note-bubble', title: note.text + ' \u00b7 ' + timeAgo(note.at) }, note.text));
+          }).catch(function () {});
+          return h('li', null, h('a', { href: '#u/' + p.username, title: p.name }, slot, avatar(p, p.avatar, 2.5), h('span', { class: 'small' }, p.name.split(' ')[0])));
         })), people.length > 8 ? h('a', { class: 'small', href: '#circle' }, 'See all ' + people.length) : '');
       }).catch(function () { circleList.replaceChildren(h('p', { class: 'small muted' }, 'We could not load your circle.')); });
     }
@@ -1726,7 +1748,8 @@
       h('div', { class: 'pf-side' },
         h('section', { class: 'pf-card pf-list-card' },
           h('div', { class: 'pf-card-head' }, h('h2', null, 'Your circle'), h('a', { class: 'small', href: '#circle' }, 'Manage')),
-          circleList)));
+          circleList),
+        quoteSlides()));
   }
 
   /** Crops to a wide 3:1 banner and keeps it under the size limit. */
@@ -1900,6 +1923,107 @@
     document.addEventListener('keydown', onKey);
     document.body.appendChild(overlay);
     form.querySelector('.pf-cover-btn').focus();
+  }
+
+  /* ---------- Notes ---------- */
+
+  function openNoteDialog(note, onDone) {
+    const previous = document.activeElement;
+    const input = h('input', { id: 'f-note', maxlength: SOC.NOTE_MAX, autocomplete: 'off', placeholder: 'Ipon goals, mood, a win today…' });
+    input.value = note ? note.text : '';
+    const count = h('span', { class: 'small muted num' });
+    const preview = h('span', { class: 'note-bubble big' });
+    function sync() { count.textContent = input.value.length + ' / ' + SOC.NOTE_MAX; preview.textContent = input.value.trim() || 'Your note'; preview.classList.toggle('empty', !input.value.trim()); }
+    input.addEventListener('input', sync);
+    const errorBox = h('p', { class: 'form-error', role: 'alert', hidden: true });
+    const share = h('button', { type: 'submit', class: 'btn primary' }, 'Share');
+    const form = h('form', {
+      class: 'acct-form', novalidate: true,
+      onsubmit: async function (event) {
+        event.preventDefault();
+        share.disabled = true;
+        try { const saved = await SOC.saveNote(input.value); toast('Note shared with your circle.'); close(); onDone(saved); }
+        catch (error) { share.disabled = false; errorBox.textContent = error.message; errorBox.hidden = false; }
+      }
+    },
+    h('div', { class: 'acct-head' }, h('h2', { id: 'note-title' }, note ? 'Your note' : 'New note'),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', title: 'Close', onclick: function () { close(); } }, icon('close'))),
+    h('div', { class: 'note-preview' }, preview, avatar(BT.currentUser(), BT.currentUser().avatar, 4)),
+    h('div', { class: 'acct-field' }, h('label', { for: 'f-note' }, 'Note'), input, count),
+    h('p', { class: 'small muted', style: 'margin:0' }, 'Only your circle can see it. It disappears after 24 hours.'),
+    errorBox,
+    h('div', { class: 'ask-actions' },
+      note ? h('button', {
+        type: 'button', class: 'btn danger',
+        onclick: async function () {
+          try { await SOC.deleteNote(); toast('Note removed.'); close(); onDone(null); }
+          catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
+        }
+      }, 'Delete') : null,
+      h('span', { class: 'grow' }),
+      h('button', { type: 'button', class: 'btn', onclick: function () { close(); } }, 'Cancel'), share));
+    const overlay = h('div', { class: 'chat-overlay ask' },
+      h('div', { class: 'ask-card note-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'note-title' }, form));
+    function onKey(event) { if (event.key === 'Escape') close(); }
+    function close() { document.removeEventListener('keydown', onKey); overlay.remove(); if (previous && previous.isConnected) previous.focus(); }
+    overlay.addEventListener('click', function (event) { if (event.target === overlay) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    sync();
+    input.focus();
+  }
+
+  /* ---------- Money motivation slideshow ---------- */
+
+  function quoteSlides() {
+    const quotes = (window.MONEY_QUOTES || []).slice();
+    for (let i = quotes.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = quotes[i]; quotes[i] = quotes[j]; quotes[j] = t; }
+    let index = 0, timer = null, paused = false;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const text = h('p', { class: 'quote-text' });
+    const who = h('p', { class: 'quote-who small' });
+    const stage = h('blockquote', { class: 'quote-stage', 'aria-live': 'polite' }, text, who);
+    const count = h('span', { class: 'small muted num' });
+    function show(i) {
+      if (!quotes.length) return;
+      index = (i + quotes.length) % quotes.length;
+      stage.classList.remove('in');
+      void stage.offsetWidth;
+      text.textContent = '“' + quotes[index][0] + '”';
+      who.textContent = '— ' + quotes[index][1];
+      count.textContent = (index + 1) + ' / ' + quotes.length;
+      stage.classList.add('in');
+    }
+    function schedule() {
+      clearTimeout(timer);
+      if (reduce || paused) return;
+      timer = setTimeout(function () {
+        if (!card.isConnected) return;
+        show(index + 1); schedule();
+      }, 7000);
+    }
+    const playBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Pause slideshow', title: 'Pause' });
+    function drawPlay() {
+      const holder = document.createElement('span');
+      holder.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        (paused || reduce ? '<path d="M7 5v10l8-5z" fill="currentColor"/>' : '<path d="M7.5 5v10M12.5 5v10"/>') + '</svg>';
+      playBtn.replaceChildren(holder.firstChild);
+      playBtn.setAttribute('aria-label', paused || reduce ? 'Play slideshow' : 'Pause slideshow');
+      playBtn.title = paused || reduce ? 'Play' : 'Pause';
+    }
+    playBtn.addEventListener('click', function () { if (reduce) { show(index + 1); return; } paused = !paused; drawPlay(); schedule(); });
+    const card = h('section', { class: 'pf-card pf-quotes', 'aria-label': 'Money motivation',
+      onmouseenter: function () { clearTimeout(timer); }, onmouseleave: schedule, onfocusin: function () { clearTimeout(timer); }, onfocusout: schedule },
+      h('div', { class: 'pf-card-head' }, h('h2', null, 'Money motivation'), count),
+      stage,
+      h('div', { class: 'quote-controls' },
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Previous quote', title: 'Previous', onclick: function () { show(index - 1); schedule(); } }, icon('prev')),
+        playBtn,
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Next quote', title: 'Next', onclick: function () { show(index + 1); schedule(); } }, icon('next'))));
+    drawPlay();
+    show(0);
+    schedule();
+    return card;
   }
 
   function viewTimeline() {
