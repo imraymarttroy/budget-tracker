@@ -198,11 +198,12 @@
     if (!user.verified) return 'verify';
     if (!user.profileDone) return 'setup';
     if (/^u\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'person';
-    return ['profile', 'circle', 'notifications', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
+    if (/^chat\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'chat';
+    return ['profile', 'circle', 'messages', 'notifications', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
   }
 
   /* Views that show the sidebar. Only the signed-in owner of the account ever sees it. */
-  const SHELL_VIEWS = ['dashboard', 'profile', 'person', 'circle', 'notifications', 'settings'];
+  const SHELL_VIEWS = ['dashboard', 'profile', 'person', 'circle', 'messages', 'chat', 'notifications', 'settings'];
 
   const VIEWS = {
     signin: { title: 'Sign in', render: viewAuth },
@@ -214,6 +215,8 @@
     profile: { title: 'Profile', render: viewTimeline },
     person: { title: 'Profile', render: viewPerson },
     circle: { title: 'Circle', render: viewCircle },
+    messages: { title: 'Messages', render: viewMessages },
+    chat: { title: 'Messages', render: viewChat },
     notifications: { title: 'Notifications', render: viewNotifications },
     settings: { title: 'Settings', render: viewSettings },
     offline: { title: 'Could not load', render: viewOffline },
@@ -223,9 +226,10 @@
 
   function render() {
     const view = resolveView();
-    if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); }
-    if (view === 'person') {
-      /* keep #u/username as it is */
+    if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); SOC.stopWatchingChats(); }
+    if (state.cleanup) { state.cleanup(); state.cleanup = null; }
+    if (view === 'person' || view === 'chat') {
+      /* keep #u/username and #chat/username as they are */
     } else if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
     const changed = view !== state.view;
     state.view = view;
@@ -916,6 +920,7 @@
     dashboard: '<rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/>',
     profile: '<circle cx="10" cy="7" r="3.5"/><path d="M3.5 17c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/>',
     circle: '<circle cx="7" cy="7.5" r="2.75"/><circle cx="13.5" cy="8" r="2.25"/><path d="M2.5 16c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4M12 12.2c2.3-.4 4.5.9 5.2 3.8"/>',
+    messages: '<path d="M3.5 5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-3.5 3v-3a2 2 0 0 1-2-2z"/>',
     notifications: '<path d="M5 13.5V9a5 5 0 0 1 10 0v4.5l1.5 1.5h-13z"/><path d="M8.5 17.5a1.6 1.6 0 0 0 3 0"/>',
     settings: '<circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/>',
     signout: '<path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H7.5"/>'
@@ -930,9 +935,9 @@
   const badges = [];
 
   function drawBadges() {
-    const count = SOC.unreadCount();
     badges.forEach(function (badge) {
       if (!badge.isConnected) return;
+      const count = badge.dataset.kind === 'messages' ? SOC.unreadChatCount() : SOC.unreadCount();
       badge.textContent = count > 99 ? '99+' : String(count);
       badge.hidden = count === 0;
       badge.setAttribute('aria-label', count + ' new');
@@ -946,15 +951,16 @@
     socialFor = user.id;
     SOC.ensureProfile(user).catch(function (e) { console.error(e); });
     SOC.watchNotifications();
+    SOC.watchChats();
   }
 
   function shell(view, content) {
     const user = BT.currentUser();
-    const current = view;
+    const current = view === 'chat' ? 'messages' : view;
     function item(name, href, label) {
       const link = h('a', { class: 'nav-item', href: href, 'aria-current': current === name ? 'page' : null }, navIcon(name), h('span', null, label));
-      if (name === 'notifications') {
-        const badge = h('span', { class: 'nav-badge', hidden: true });
+      if (name === 'notifications' || name === 'messages') {
+        const badge = h('span', { class: 'nav-badge', hidden: true, 'data-kind': name });
         badges.push(badge);
         link.appendChild(badge);
       }
@@ -970,6 +976,7 @@
           item('dashboard', '#dashboard', 'Dashboard'),
           item('profile', '#profile', 'Profile'),
           item('circle', '#circle', 'Circle'),
+          item('messages', '#messages', 'Messages'),
           item('notifications', '#notifications', 'Notifications'),
           item('settings', '#settings', 'Settings'),
           h('li', null, h('button', {
@@ -980,6 +987,7 @@
               state.notice = 'You have signed out.';
               socialFor = null;
               SOC.stopWatching();
+              SOC.stopWatchingChats();
               location.hash = '#signin';
               BT.signOut();
             }
@@ -1231,7 +1239,9 @@
         const rel = await SOC.relation(person.id);
         document.title = person.name + ' · PassbookHub';
         box.replaceChildren(
-          profileHeader(person, relationActions(person, rel, load), null),
+          profileHeader(person, rel === 'circle'
+            ? h('div', { class: 'row' }, messageButton(person, true), relationActions(person, rel, load))
+            : relationActions(person, rel, load), null),
           rel === 'circle' ? null : h('p', { class: 'small muted vis-note' },
             rel === 'none' || rel === 'sent' ? 'You can see ' + person.name.split(' ')[0] + '’s public posts. Join their circle to see posts shared with their circle.' : ''),
           h('h2', { class: 'posts-title' }, 'Posts'),
@@ -1254,11 +1264,27 @@
       extra || null);
   }
 
+  /** Opens the conversation with someone in your circle. */
+  function messageButton(person, primary) {
+    return h('a', { class: 'btn msg-btn' + (primary ? ' primary' : ''), href: '#chat/' + person.username, 'aria-label': 'Message ' + person.name },
+      navIcon('messages'), h('span', null, 'Message'));
+  }
+
   function viewCircle() {
     const input = h('input', { id: 'f-search', type: 'search', placeholder: 'Search by name or @username', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false' });
     const results = h('div', { 'aria-live': 'polite' });
     const members = h('div', null, h('p', { class: 'muted small' }, 'Loading your circle…'));
     let timer = null, latest = 0;
+    const circleReady = SOC.circleMembers().then(function (people) {
+      const ids = {};
+      people.forEach(function (p) { ids[p.id] = true; });
+      return { people: people, ids: ids };
+    });
+
+    function searchExtra(person, circle) {
+      if (circle.ids[person.id]) return messageButton(person);
+      return h('a', { class: 'btn msg-btn', href: '#u/' + person.username, title: 'Add ' + person.name + ' to your circle to send messages' }, 'View profile');
+    }
 
     async function runSearch() {
       const term = input.value.trim();
@@ -1266,10 +1292,11 @@
       if (term.replace(/^@/, '').length < 1) { results.replaceChildren(); return; }
       results.replaceChildren(h('p', { class: 'muted small' }, 'Searching…'));
       try {
-        const people = await SOC.search(term);
+        const found = await Promise.all([SOC.search(term), circleReady.catch(function () { return { ids: {} }; })]);
+        const people = found[0], circle = found[1];
         if (ticket !== latest) return;
         results.replaceChildren(people.length
-          ? h('ul', { class: 'people' }, people.map(function (p) { return personRow(p); }))
+          ? h('ul', { class: 'people' }, people.map(function (p) { return personRow(p, searchExtra(p, circle)); }))
           : h('p', { class: 'empty' }, 'No one found for “' + term + '”.'));
       } catch (error) {
         if (ticket === latest) results.replaceChildren(h('p', { class: 'empty' }, error.message));
@@ -1277,20 +1304,210 @@
     }
     input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(runSearch, 300); });
 
-    SOC.circleMembers().then(function (people) {
+    circleReady.then(function (circle) {
+      const people = circle.people;
       members.replaceChildren(people.length
-        ? h('ul', { class: 'people' }, people.map(function (p) { return personRow(p); }))
+        ? h('ul', { class: 'people' }, people.map(function (p) { return personRow(p, messageButton(p)); }))
         : h('p', { class: 'empty' }, 'Your circle is empty. Search for people above to add them.'));
     }).catch(function (error) { members.replaceChildren(h('p', { class: 'empty' }, error.message)); });
 
     setTimeout(function () { if (input.isConnected) input.focus(); }, 0);
     return h('div', { class: 'wide' },
       h('h1', null, 'Circle'),
-      h('p', { class: 'muted', style: 'margin:0.25rem 0 1.25rem' }, 'Your circle is your PassbookHub friends. Posts you share with “Circle” are visible only to them.'),
+      h('p', { class: 'muted', style: 'margin:0.25rem 0 1.25rem' }, 'Your circle is your PassbookHub friends. Posts you share with “Circle” are visible only to them, and you can message anyone in your circle.'),
       h('div', { class: 'search-box' }, h('label', { class: 'vh', for: 'f-search' }, 'Search people'), navIcon('circle'), input),
       results,
       h('h2', { class: 'posts-title' }, 'Your circle'),
       members);
+  }
+
+  /* ---------- Messages ---------- */
+
+  function viewMessages() {
+    const list = h('div', null, h('p', { class: 'muted small' }, 'Loading messages…'));
+
+    function draw(chats) {
+      if (!list.isConnected && list.parentNode) return;
+      if (!SOC.chatsReady()) return;
+      if (!chats.length) {
+        list.replaceChildren(h('div', { class: 'empty' },
+          h('p', null, 'No messages yet.'),
+          h('p', { class: 'small', style: 'margin-top:0.5rem' }, 'Open your ', h('a', { href: '#circle' }, 'circle'), ' and tap Message to start a conversation.')));
+        return;
+      }
+      const ul = h('ul', { class: 'people chats' });
+      chats.forEach(function (chat) {
+        const li = h('li', { class: 'person' }, h('p', { class: 'muted small', style: 'padding:0.5rem' }, 'Loading…'));
+        ul.appendChild(li);
+        SOC.getProfile(SOC.otherIn(chat)).then(function (person) {
+          if (!person) { li.remove(); return; }
+          const unread = SOC.isUnread(chat);
+          li.className = 'person' + (unread ? ' unread' : '');
+          li.replaceChildren(h('a', { class: 'person-link', href: '#chat/' + person.username },
+            avatar(person, person.avatar, 2.75),
+            h('span', { class: 'person-names chat-names' },
+              h('span', { class: 'chat-top' }, h('strong', null, person.name), h('span', { class: 'small muted num' }, timeAgo(chat.lastAt))),
+              h('span', { class: 'small chat-preview' + (unread ? '' : ' muted') }, (chat.lastFrom === BT.currentUser().id ? 'You: ' : '') + chat.lastText)),
+            unread ? h('span', { class: 'unread-dot' }, h('span', { class: 'vh' }, 'Unread')) : null));
+        }).catch(function () { li.remove(); });
+      });
+      list.replaceChildren(ul);
+    }
+
+    state.drawChats = draw;
+    draw(SOC.chats());
+    return h('div', { class: 'wide' },
+      h('div', { class: 'list-head', style: 'margin-bottom:1.25rem' },
+        h('h1', null, 'Messages'),
+        h('a', { class: 'btn', href: '#circle' }, 'New message')),
+      list);
+  }
+
+  function clockTime(ms) {
+    return new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function dayLabel(ms) {
+    const d = new Date(ms);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
+  }
+
+  function viewChat() {
+    const username = location.hash.slice(6);
+    const box = h('div', { class: 'wide chat-page' }, h('p', { class: 'muted' }, 'Loading conversation…'));
+    let stop = null;
+    let closed = false;
+    state.cleanup = function () { closed = true; if (stop) stop(); stop = null; state.onChatsChange = null; };
+
+    async function load() {
+      try {
+        const person = await SOC.findByUsername(username);
+        if (closed) return;
+        if (!person) {
+          box.replaceChildren(h('div', { class: 'empty-state' },
+            h('h1', null, 'Person not found'),
+            h('p', { class: 'muted' }, 'No one on PassbookHub has the username @' + username + '.'),
+            h('a', { class: 'btn', href: '#messages' }, 'Back to messages')));
+          return;
+        }
+        if (person.id === BT.currentUser().id) { location.hash = '#messages'; return; }
+        const rel = await SOC.relation(person.id);
+        if (closed) return;
+        document.title = person.name + ' · Messages · PassbookHub';
+        draw(person, rel === 'circle');
+      } catch (error) {
+        if (!closed) box.replaceChildren(h('p', { class: 'empty' }, error.message || 'We could not load this conversation.'));
+      }
+    }
+
+    function draw(person, canSend) {
+      const me = BT.currentUser();
+      const first = person.name.split(' ')[0];
+      const thread = h('div', { class: 'chat-thread', role: 'log', 'aria-label': 'Conversation with ' + person.name },
+        h('p', { class: 'muted small chat-hint' }, 'Loading messages…'));
+      let firstDraw = true;
+
+      function seen() {
+        if (document.visibilityState === 'visible') SOC.markSeen(person.id).catch(function () {});
+      }
+      state.onChatsChange = seen;
+
+      function drawMessages(messages) {
+        if (closed) return;
+        const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+        if (!messages.length) {
+          thread.replaceChildren(h('div', { class: 'chat-hint' },
+            avatar(person, person.avatar, 4),
+            h('p', null, h('strong', null, person.name)),
+            h('p', { class: 'small muted' }, canSend
+              ? 'Say hi to ' + first + '. Only the two of you can see this conversation.'
+              : 'No messages yet.')));
+        } else {
+          const nodes = [];
+          let lastDay = null;
+          messages.forEach(function (m) {
+            const day = new Date(m.createdAt).toDateString();
+            if (day !== lastDay) {
+              nodes.push(h('p', { class: 'chat-day small muted' }, dayLabel(m.createdAt)));
+              lastDay = day;
+            }
+            const mine = m.from === me.id;
+            const next = messages[messages.indexOf(m) + 1];
+            const lastOfRun = !next || next.from !== m.from || next.createdAt - m.createdAt > 5 * 60 * 1000 ||
+              new Date(next.createdAt).toDateString() !== day;
+            nodes.push(h('div', { class: 'bubble-row' + (mine ? ' mine' : '') },
+              h('p', { class: 'bubble', title: clockTime(m.createdAt) }, m.text),
+              lastOfRun ? h('span', { class: 'bubble-time small muted' }, clockTime(m.createdAt)) : null));
+          });
+          thread.replaceChildren.apply(thread, nodes);
+        }
+        if (firstDraw || nearBottom) thread.scrollTop = thread.scrollHeight;
+        firstDraw = false;
+        seen();
+      }
+
+      stop = SOC.watchMessages(person.id, drawMessages, function (error) {
+        if (!closed) thread.replaceChildren(h('p', { class: 'empty' }, error.message));
+      });
+
+      let composerBox;
+      if (canSend) {
+        const text = h('textarea', { id: 'f-message', name: 'message', rows: 1, maxlength: SOC.MESSAGE_MAX, placeholder: 'Message ' + first + '…', autocomplete: 'off' });
+        const send = h('button', { class: 'btn primary', type: 'submit' }, 'Send');
+        const grow = function () { text.style.height = 'auto'; text.style.height = Math.min(text.scrollHeight + 2, 160) + 'px'; };
+        text.addEventListener('input', grow);
+        const form = h('form', {
+          class: 'chat-composer',
+          novalidate: true,
+          onsubmit: async function (event) {
+            event.preventDefault();
+            const body = text.value;
+            const problem = SOC.validateMessage(body);
+            if (problem) { if (body.trim()) toast(problem); return; }
+            if (send.disabled) return;
+            send.disabled = true;
+            text.value = '';
+            grow();
+            try {
+              await SOC.sendMessage(person.id, body);
+            } catch (error) {
+              if (!text.value) { text.value = body; grow(); }
+              toast(error.message || 'We could not send your message.');
+            } finally {
+              send.disabled = false;
+              if (text.isConnected) text.focus();
+            }
+          }
+        }, h('label', { class: 'vh', for: 'f-message' }, 'Message'), text, send);
+        /* Enter sends, Shift+Enter adds a new line. */
+        text.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+        });
+        setTimeout(function () { if (text.isConnected) text.focus({ preventScroll: true }); }, 0);
+        composerBox = form;
+      } else {
+        composerBox = h('p', { class: 'chat-locked small muted' },
+          'You can only message people in your circle. ',
+          h('a', { href: '#u/' + person.username }, 'Add ' + first + ' to your circle'), ' to send a message.');
+      }
+
+      box.replaceChildren(
+        h('header', { class: 'chat-head' },
+          h('a', { class: 'icon-btn', href: '#messages', 'aria-label': 'Back to messages', title: 'Back to messages' }, icon('prev')),
+          h('a', { class: 'person-link', href: '#u/' + person.username },
+            avatar(person, person.avatar, 2.5),
+            h('span', { class: 'person-names' }, h('h1', { class: 'chat-name' }, person.name), h('span', { class: 'small muted' }, '@' + person.username)))),
+        thread,
+        composerBox);
+    }
+
+    load();
+    return box;
   }
 
   /* ---------- Notifications ---------- */
@@ -1658,6 +1875,11 @@
 
   /* ---------- Start ---------- */
 
+  SOC.onChats(function (list) {
+    drawBadges();
+    if (state.view === 'messages' && state.drawChats) state.drawChats(list);
+    if (state.view === 'chat' && state.onChatsChange) state.onChatsChange();
+  });
   SOC.onNotifications(function (notes) {
     drawBadges();
     if (state.view === 'notifications' && state.drawNotes) {

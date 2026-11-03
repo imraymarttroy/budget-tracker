@@ -237,6 +237,101 @@ window.SOC = (function () {
     await run(function () { return F().deleteDoc(F().doc(notesCol(me()), id)); });
   }
 
+  /* ---------- Messages (circle members only) ---------- */
+
+  const MESSAGE_MAX = 1000;
+  const chatDoc = function (id) { return F().doc(db(), 'chats', id); };
+  const messagesCol = function (id) { return F().collection(db(), 'chats', id, 'messages'); };
+
+  /** One conversation per pair of people. The id is both uids, sorted, joined with "_". */
+  function chatIdWith(uid) {
+    const a = me();
+    return a < uid ? a + '_' + uid : uid + '_' + a;
+  }
+
+  function otherIn(chat) {
+    return chat.members[0] === me() ? chat.members[1] : chat.members[0];
+  }
+
+  function isUnread(chat) {
+    return !!chat && chat.lastFrom !== me() && chat.lastAt > ((chat.seen || {})[me()] || 0);
+  }
+
+  function validateMessage(text) {
+    if (!text.trim()) return 'Write a message first.';
+    if (text.trim().length > MESSAGE_MAX) return 'Use ' + MESSAGE_MAX + ' characters or fewer.';
+    return null;
+  }
+
+  async function sendMessage(uid, text) {
+    const body = text.trim();
+    const problem = validateMessage(body);
+    if (problem) throw new BT.UserError(problem);
+    const id = chatIdWith(uid);
+    const now = Date.now();
+    const existing = await run(function () { return F().getDoc(chatDoc(id)); });
+    const summary = { lastText: body.slice(0, 140), lastFrom: me(), lastAt: now };
+    const batch = F().writeBatch(db());
+    batch.set(F().doc(messagesCol(id)), { from: me(), text: body, createdAt: now });
+    if (existing.exists()) {
+      const update = Object.assign({}, summary);
+      update['seen.' + me()] = now;
+      batch.update(chatDoc(id), update);
+    } else {
+      const seen = {};
+      seen[me()] = now;
+      batch.set(chatDoc(id), Object.assign({ members: id.split('_'), seen: seen }, summary));
+    }
+    await run(function () { return batch.commit(); });
+  }
+
+  /** Live list of the newest messages with someone, oldest first. Returns a function that stops listening. */
+  function watchMessages(uid, onChange, onError) {
+    const q = F().query(messagesCol(chatIdWith(uid)), F().orderBy('createdAt', 'desc'), F().limit(200));
+    return F().onSnapshot(q, function (snap) {
+      onChange(snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }).reverse());
+    }, function (error) { onError(friendly(error)); });
+  }
+
+  let chatUnsubscribe = null;
+  let chatList = [];
+  let chatsLoaded = false;
+  const chatListeners = [];
+
+  function watchChats() {
+    stopWatchingChats();
+    if (!me()) return;
+    const q = F().query(F().collection(db(), 'chats'), F().where('members', 'array-contains', me()));
+    chatUnsubscribe = F().onSnapshot(q, function (snap) {
+      chatList = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); })
+        .sort(function (a, b) { return b.lastAt - a.lastAt; });
+      chatsLoaded = true;
+      chatListeners.forEach(function (fn) { fn(chatList); });
+    }, function (error) { console.error(error); });
+  }
+
+  function stopWatchingChats() {
+    if (chatUnsubscribe) chatUnsubscribe();
+    chatUnsubscribe = null;
+    chatList = [];
+    chatsLoaded = false;
+  }
+
+  function onChats(fn) { chatListeners.push(fn); }
+  function chats() { return chatList.slice(); }
+  function chatsReady() { return chatsLoaded; }
+  function chatWith(uid) { return chatList.find(function (c) { return c.id === chatIdWith(uid); }) || null; }
+  function unreadChatCount() { return chatList.filter(isUnread).length; }
+
+  /** Marks a conversation as read. Only writes when there is something new. */
+  async function markSeen(uid) {
+    const chat = chatWith(uid);
+    if (!isUnread(chat)) return;
+    const update = {};
+    update['seen.' + me()] = Date.now();
+    await run(function () { return F().updateDoc(chatDoc(chat.id), update); });
+  }
+
   /* ---------- Account deletion ---------- */
 
   /** Removes everything social that belongs to the signed-in person. Call before deleting the account. */
@@ -251,15 +346,28 @@ window.SOC = (function () {
     lists.forEach(function (snap) { snap.docs.forEach(function (d) { refs.push(d.ref); }); });
     lists[1].docs.forEach(function (d) { refs.push(circleDoc(d.id, uid)); });
     refs.push(profileDoc(uid));
+    /* Your own messages and the conversations you are in. */
+    const myChats = await run(function () {
+      return F().getDocs(F().query(F().collection(db(), 'chats'), F().where('members', 'array-contains', uid)));
+    });
+    for (const chat of myChats.docs) {
+      const sent = await run(function () { return F().getDocs(F().query(messagesCol(chat.id), F().where('from', '==', uid))); });
+      sent.docs.forEach(function (d) { refs.push(d.ref); });
+      refs.push(chat.ref);
+    }
     for (let i = 0; i < refs.length; i += 400) {
       const batch = F().writeBatch(db());
       refs.slice(i, i + 400).forEach(function (ref) { batch.delete(ref); });
       await run(function () { return batch.commit(); });
     }
     stopWatching();
+    stopWatchingChats();
   }
 
   return {
+    MESSAGE_MAX: MESSAGE_MAX, otherIn: otherIn, isUnread: isUnread, validateMessage: validateMessage,
+    sendMessage: sendMessage, watchMessages: watchMessages, watchChats: watchChats, stopWatchingChats: stopWatchingChats,
+    onChats: onChats, chats: chats, chatsReady: chatsReady, chatWith: chatWith, unreadChatCount: unreadChatCount, markSeen: markSeen,
     VISIBILITY: VISIBILITY, POST_MAX: POST_MAX,
     syncProfile: syncProfile, ensureProfile: ensureProfile, getProfile: getProfile, findByUsername: findByUsername, search: search,
     relation: relation, sendRequest: sendRequest, cancelRequest: cancelRequest, acceptRequest: acceptRequest,
