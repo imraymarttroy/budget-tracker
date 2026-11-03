@@ -233,7 +233,9 @@
     if (/^d\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'shared';
     if (wanted === 'messages') return 'chat';
     if (wanted === 'notifications') return 'alerts';
-    return ['feed', 'profile', 'circle', 'alerts', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
+    if (wanted === 'dashboard') return 'dashboard';
+    /* After signing in (or with no page in the address), start on the profile. */
+    return ['feed', 'profile', 'circle', 'alerts', 'settings'].indexOf(wanted) !== -1 ? wanted : 'profile';
   }
 
   /* Views that show the sidebar. Only the signed-in owner of the account ever sees it. */
@@ -1978,53 +1980,49 @@
   function quoteSlides() {
     const quotes = (window.MONEY_QUOTES || []).slice();
     for (let i = quotes.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = quotes[i]; quotes[i] = quotes[j]; quotes[j] = t; }
-    let index = 0, timer = null, paused = false;
-    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let index = 0, timer = null, hovering = false;
+    const kicker = h('span', { class: 'quote-kicker small' });
     const text = h('p', { class: 'quote-text' });
     const who = h('p', { class: 'quote-who small' });
-    const stage = h('blockquote', { class: 'quote-stage', 'aria-live': 'polite' }, text, who);
-    const count = h('span', { class: 'small muted num' });
+    const stage = h('blockquote', { class: 'quote-stage' }, kicker, text, who);
+    const bar = h('span', { class: 'quote-bar', 'aria-hidden': 'true' }, h('span'));
     function show(i) {
       if (!quotes.length) return;
       index = (i + quotes.length) % quotes.length;
+      const q = quotes[index];
+      const story = q[2] === 'story';
       stage.classList.remove('in');
+      bar.classList.remove('run');
       void stage.offsetWidth;
-      text.textContent = '“' + quotes[index][0] + '”';
-      who.textContent = '— ' + quotes[index][1];
-      count.textContent = (index + 1) + ' / ' + quotes.length;
+      kicker.textContent = story ? 'Pinoy success story' : '';
+      kicker.hidden = !story;
+      stage.classList.toggle('story', story);
+      text.textContent = story ? q[0] : '“' + q[0] + '”';
+      who.textContent = '— ' + q[1];
       stage.classList.add('in');
+      if (!hovering) bar.classList.add('run');
     }
-    function schedule() {
+    /* Next one every 5 seconds, always. Hovering just holds the current one so it can be read. */
+    function tick() {
       clearTimeout(timer);
-      if (reduce || paused) return;
       timer = setTimeout(function () {
         if (!card.isConnected) return;
-        show(index + 1); schedule();
-      }, 7000);
+        if (!hovering) show(index + 1);
+        tick();
+      }, 5000);
     }
-    const playBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Pause slideshow', title: 'Pause' });
-    function drawPlay() {
-      const holder = document.createElement('span');
-      holder.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-        (paused || reduce ? '<path d="M7 5v10l8-5z" fill="currentColor"/>' : '<path d="M7.5 5v10M12.5 5v10"/>') + '</svg>';
-      playBtn.replaceChildren(holder.firstChild);
-      playBtn.setAttribute('aria-label', paused || reduce ? 'Play slideshow' : 'Pause slideshow');
-      playBtn.title = paused || reduce ? 'Play' : 'Pause';
-    }
-    playBtn.addEventListener('click', function () { if (reduce) { show(index + 1); return; } paused = !paused; drawPlay(); schedule(); });
-    const card = h('section', { class: 'pf-card pf-quotes', 'aria-label': 'Money motivation',
-      onmouseenter: function () { clearTimeout(timer); }, onmouseleave: schedule, onfocusin: function () { clearTimeout(timer); }, onfocusout: schedule },
-      h('div', { class: 'pf-card-head' }, h('h2', null, 'Money motivation'), count),
-      stage,
-      h('div', { class: 'quote-controls' },
-        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Previous quote', title: 'Previous', onclick: function () { show(index - 1); schedule(); } }, icon('prev')),
-        playBtn,
-        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Next quote', title: 'Next', onclick: function () { show(index + 1); schedule(); } }, icon('next'))));
-    drawPlay();
+    const card = h('section', {
+      class: 'pf-card pf-quotes', 'aria-label': 'Money motivation',
+      onmouseenter: function () { hovering = true; bar.classList.remove('run'); },
+      onmouseleave: function () { hovering = false; show(index + 1); tick(); }
+    },
+      h('div', { class: 'pf-card-head' }, h('h2', null, 'Money motivation')),
+      stage, bar);
     show(0);
-    schedule();
+    tick();
     return card;
   }
+
 
   function viewTimeline() {
     const user = BT.currentUser();
