@@ -1585,7 +1585,13 @@
       const page = name === 'notifications' ? 'alerts' : name;
       return h('a', { class: 'top-btn', href: href, title: label, 'aria-label': label, 'aria-current': current === page ? 'page' : null }, navIcon(name), h('span', { class: 'top-label' }, label), badge);
     }
+    const aiBtn = h('button', {
+      type: 'button', class: 'top-btn ai-top-btn', title: 'Ask PassbookHub AI', 'aria-label': 'Ask PassbookHub AI',
+      onclick: function () { dock.open(AI_USER); }
+    });
+    aiBtn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">' + AI_SPARK + '</svg><span class="top-label">Ask PassbookHub AI</span>';
     const top = h('div', { class: 'top-actions' },
+      aiBtn,
       themeButton(),
       topLink('notifications', '#alerts', 'Alerts'),
       topLink('settings', '#settings', 'Settings'));
