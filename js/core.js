@@ -163,15 +163,15 @@ window.BT = (function () {
   }
 
   function monthLabel(month) {
-    return toLocalDate(month + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    return toLocalDate(month + '-01').toLocaleDateString(I18N.locale, { month: 'long', year: 'numeric' });
   }
 
   function shortDate(value) {
-    return toLocalDate(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return toLocalDate(value).toLocaleDateString(I18N.locale, { month: 'short', day: 'numeric' });
   }
 
   function longDate(value) {
-    return toLocalDate(value).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+    return toLocalDate(value).toLocaleDateString(I18N.locale, { month: 'long', day: 'numeric', year: 'numeric' });
   }
 
   /* ---------- Accounts ---------- */
