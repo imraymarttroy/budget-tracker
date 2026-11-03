@@ -1305,7 +1305,7 @@
           h('p', { class: 'small muted', style: 'margin:0 0 0.75rem' }, 'Permanently remove your profile, budget, accounts and messages.'),
           dangerBox), 'set-danger')));
     const circlePanel = h('div', { id: 'panel-set-circle', role: 'tabpanel', 'aria-labelledby': 'tab-set-circle', class: 'pf-page single', hidden: true },
-      h('div', { class: 'pf-main' }, card('Blocked people', 'block', circleSettings())));
+      h('div', { class: 'pf-main' }, card('Status and blocked people', 'circle', circleSettings())));
 
     const tabs = [['profile', 'Profile settings', profilePanel], ['circle', 'Circle settings', circlePanel]];
     const tabButtons = tabs.map(function (t, i) {
