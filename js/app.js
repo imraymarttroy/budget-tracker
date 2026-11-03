@@ -1244,14 +1244,6 @@
       mfaChip.replaceChildren(h('span', { class: 'otp-dot', 'aria-hidden': 'true' }), 'Two-step ' + (on ? 'on' : 'off'));
     }
     drawChip();
-    /* Your country's flag, from your address. */
-    const countryChip = h('span', { class: 'set-chip' });
-    function drawCountry() {
-      const a = BT.currentUser().address;
-      countryChip.hidden = !(a && a.country);
-      if (a && a.country) countryChip.replaceChildren(h('img', { class: 'flag', src: BT.countryFlagUrl(a.country), alt: '', width: 24, height: 18 }), BT.countryName(a.country));
-    }
-    drawCountry();
     const hero = h('section', { class: 'pf-card pf-hero set-hero' },
       h('div', { class: 'pf-hero-glow', 'aria-hidden': 'true' }, h('span'), h('span')),
       h('div', { class: 'pf-hero-copy' },
@@ -1260,7 +1252,6 @@
         h('p', { class: 'pf-handle' }, user.name + ' · @' + user.username),
         h('div', { class: 'set-chips' },
           mfaChip,
-          countryChip,
           h('span', { class: 'set-chip' }, flagImage(user.currency), user.currency),
           h('span', { class: 'set-chip' }, user.provider !== 'password' ? BT.socialLabel(user.provider) + ' sign-in' : 'Email sign-in'))),
       h('div', { class: 'pf-hero-photo' }, avatar(user, user.avatar, 6.5)));
@@ -1280,7 +1271,7 @@
       h('div', { class: 'pf-main' },
         card('Profile', 'camera', form)),
       h('div', { class: 'pf-side' },
-        accountCard(function () { drawCountry(); }),
+        accountCard(function () {}),
         card('Security', 'lock', security, 'set-security'),
         card('Delete account', null, h('div', null,
           h('p', { class: 'small muted', style: 'margin:0 0 0.75rem' }, 'Permanently remove your profile, budget, accounts and messages.'),
