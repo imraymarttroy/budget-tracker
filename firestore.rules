@@ -135,17 +135,19 @@ service cloud.firestore {
       allow list: if signedIn() && request.auth.uid in resource.data.members;
       allow create: if isMember() && verified() && circleWithOther()
         && pair()[0] < pair()[1]
-        && request.resource.data.keys().hasOnly(['members', 'lastText', 'lastFrom', 'lastAt', 'seen'])
+        && request.resource.data.keys().hasOnly(['members', 'lastText', 'lastFrom', 'lastAt', 'seen', 'delivered'])
         && request.resource.data.members == pair()
         && request.resource.data.lastFrom == request.auth.uid
         && validSummary(request.resource.data)
-        && request.resource.data.seen.keys().hasOnly([request.auth.uid]);
+        && request.resource.data.seen.keys().hasOnly([request.auth.uid])
+        && request.resource.data.get('delivered', {}).keys().hasOnly([request.auth.uid]);
       allow update: if isMember()
-        && request.resource.data.keys().hasOnly(['members', 'lastText', 'lastFrom', 'lastAt', 'seen'])
+        && request.resource.data.keys().hasOnly(['members', 'lastText', 'lastFrom', 'lastAt', 'seen', 'delivered'])
         && request.resource.data.members == resource.data.members
         && validSummary(request.resource.data)
         && request.resource.data.seen.diff(resource.data.seen).affectedKeys().hasOnly([request.auth.uid])
-        && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seen'])
+        && request.resource.data.get('delivered', {}).diff(resource.data.get('delivered', {})).affectedKeys().hasOnly([request.auth.uid])
+        && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seen', 'delivered'])
           || (request.resource.data.lastFrom == request.auth.uid && verified() && circleWithOther()));
       allow delete: if isMember();
 

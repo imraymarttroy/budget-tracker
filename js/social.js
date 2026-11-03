@@ -288,8 +288,10 @@ window.SOC = (function () {
   /** Live list of the newest messages with someone, oldest first. Returns a function that stops listening. */
   function watchMessages(uid, onChange, onError) {
     const q = F().query(messagesCol(chatIdWith(uid)), F().orderBy('createdAt', 'desc'), F().limit(200));
-    return F().onSnapshot(q, function (snap) {
-      onChange(snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }).reverse());
+    return F().onSnapshot(q, { includeMetadataChanges: true }, function (snap) {
+      onChange(snap.docs.map(function (d) {
+        return Object.assign({ id: d.id, pending: d.metadata.hasPendingWrites }, d.data());
+      }).reverse());
     }, function (error) { onError(friendly(error)); });
   }
 
@@ -306,6 +308,7 @@ window.SOC = (function () {
       chatList = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); })
         .sort(function (a, b) { return b.lastAt - a.lastAt; });
       chatsLoaded = true;
+      markDelivered(chatList);
       chatListeners.forEach(function (fn) { fn(chatList); });
     }, function (error) { console.error(error); });
   }
@@ -315,6 +318,29 @@ window.SOC = (function () {
     chatUnsubscribe = null;
     chatList = [];
     chatsLoaded = false;
+  }
+
+  /** Tells the sender their latest message reached this device. Uses the message's own time so clocks do not matter. */
+  function markDelivered(list) {
+    list.forEach(function (chat) {
+      if (chat.lastFrom === me()) return;
+      const already = Math.max((chat.delivered || {})[me()] || 0, (chat.seen || {})[me()] || 0);
+      if (chat.lastAt <= already) return;
+      const update = {};
+      update['delivered.' + me()] = chat.lastAt;
+      F().updateDoc(chatDoc(chat.id), update).catch(function (e) { console.error(e); });
+    });
+  }
+
+  /** "sending", "sent", "delivered" or "seen" for a message you sent. */
+  function messageStatus(message, uid) {
+    if (message.pending) return 'sending';
+    const chat = chatWith(uid);
+    if (!chat) return 'sent';
+    const seenAt = (chat.seen || {})[uid] || 0;
+    if (seenAt >= message.createdAt) return 'seen';
+    if (Math.max(seenAt, (chat.delivered || {})[uid] || 0) >= message.createdAt) return 'delivered';
+    return 'sent';
   }
 
   function onChats(fn) { chatListeners.push(fn); }
@@ -328,7 +354,8 @@ window.SOC = (function () {
     const chat = chatWith(uid);
     if (!isUnread(chat)) return;
     const update = {};
-    update['seen.' + me()] = Date.now();
+    update['seen.' + me()] = chat.lastAt;
+    update['delivered.' + me()] = chat.lastAt;
     await run(function () { return F().updateDoc(chatDoc(chat.id), update); });
   }
 
@@ -367,7 +394,7 @@ window.SOC = (function () {
   return {
     MESSAGE_MAX: MESSAGE_MAX, otherIn: otherIn, isUnread: isUnread, validateMessage: validateMessage,
     sendMessage: sendMessage, watchMessages: watchMessages, watchChats: watchChats, stopWatchingChats: stopWatchingChats,
-    onChats: onChats, chats: chats, chatsReady: chatsReady, chatWith: chatWith, unreadChatCount: unreadChatCount, markSeen: markSeen,
+    onChats: onChats, messageStatus: messageStatus, chats: chats, chatsReady: chatsReady, chatWith: chatWith, unreadChatCount: unreadChatCount, markSeen: markSeen,
     VISIBILITY: VISIBILITY, POST_MAX: POST_MAX,
     syncProfile: syncProfile, ensureProfile: ensureProfile, getProfile: getProfile, findByUsername: findByUsername, search: search,
     relation: relation, sendRequest: sendRequest, cancelRequest: cancelRequest, acceptRequest: acceptRequest,

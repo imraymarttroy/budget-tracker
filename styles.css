@@ -778,3 +778,8 @@ body.auth-body {
   .bubble { border: 1px solid CanvasText; }
   .unread-dot { background: Highlight; }
 }
+
+.bubble-row.pending .bubble { opacity: 0.6; }
+.msg-status { display: inline-flex; align-items: center; gap: 0.25rem; }
+.msg-status .avatar { font-size: 0.4rem !important; }
+.msg-status[data-status="seen"] { color: var(--ink); font-weight: 600; }

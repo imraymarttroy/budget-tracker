@@ -1412,13 +1412,23 @@
         h('p', { class: 'muted small chat-hint' }, 'Loading messages…'));
       let firstDraw = true;
 
+      let latest = [];
       function seen() {
         if (document.visibilityState === 'visible') SOC.markSeen(person.id).catch(function () {});
       }
-      state.onChatsChange = seen;
+      /* Seen and delivered live on the conversation, so redraw when it changes. */
+      state.onChatsChange = function () { if (latest.length) drawMessages(latest); else seen(); };
+      function onVisible() {
+        if (closed) { document.removeEventListener('visibilitychange', onVisible); return; }
+        seen();
+      }
+      document.addEventListener('visibilitychange', onVisible);
+
+      const STATUS = { sending: 'Sending…', sent: 'Sent', delivered: 'Delivered', seen: 'Seen' };
 
       function drawMessages(messages) {
         if (closed) return;
+        latest = messages;
         const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
         if (!messages.length) {
           thread.replaceChildren(h('div', { class: 'chat-hint' },
@@ -1440,9 +1450,14 @@
             const next = messages[messages.indexOf(m) + 1];
             const lastOfRun = !next || next.from !== m.from || next.createdAt - m.createdAt > 5 * 60 * 1000 ||
               new Date(next.createdAt).toDateString() !== day;
-            nodes.push(h('div', { class: 'bubble-row' + (mine ? ' mine' : '') },
+            /* Status goes under your newest message while it is the last thing in the conversation. */
+            const status = mine && !next ? SOC.messageStatus(m, person.id) : null;
+            nodes.push(h('div', { class: 'bubble-row' + (mine ? ' mine' : '') + (m.pending ? ' pending' : '') },
               h('p', { class: 'bubble', title: clockTime(m.createdAt) }, m.text),
-              lastOfRun ? h('span', { class: 'bubble-time small muted' }, clockTime(m.createdAt)) : null));
+              lastOfRun || status ? h('span', { class: 'bubble-time small muted' },
+                lastOfRun ? clockTime(m.createdAt) : null,
+                lastOfRun && status ? ' · ' : null,
+                status ? h('span', { class: 'msg-status', 'data-status': status }, status === 'seen' ? avatar(person, person.avatar, 0.875) : null, STATUS[status]) : null) : null));
           });
           thread.replaceChildren.apply(thread, nodes);
         }
