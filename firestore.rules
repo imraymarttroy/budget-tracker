@@ -100,7 +100,9 @@ service cloud.firestore {
       allow read: if signedIn();
       allow delete: if signedInAs(uid);
       allow create, update: if signedInAs(uid) && verified()
-        && request.resource.data.keys().hasOnly(['name', 'nameLower', 'username', 'usernameLower', 'avatar', 'bio', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'nameLower', 'username', 'usernameLower', 'avatar', 'bio', 'updatedAt', 'education', 'work'])
+        && (!('education' in request.resource.data) || (request.resource.data.education is list && request.resource.data.education.size() <= 3))
+        && (!('work' in request.resource.data) || (request.resource.data.work is list && request.resource.data.work.size() <= 6))
         && request.resource.data.name is string && request.resource.data.name.size() <= 60
         && request.resource.data.nameLower == request.resource.data.name.lower()
         && request.resource.data.username == get(/databases/$(database)/documents/users/$(uid)).data.username
@@ -108,6 +110,16 @@ service cloud.firestore {
         && request.resource.data.bio is string && request.resource.data.bio.size() <= 160
         && (request.resource.data.avatar == null
             || (request.resource.data.avatar is string && request.resource.data.avatar.size() < 300000));
+
+      // cover/photo: the profile's cover photo, kept apart so lists don't download it.
+      match /cover/{docId} {
+        allow read: if signedIn();
+        allow delete: if signedInAs(uid);
+        allow create, update: if signedInAs(uid) && verified() && docId == 'photo'
+          && request.resource.data.keys().hasOnly(['data', 'updatedAt'])
+          && request.resource.data.data is string && request.resource.data.data.size() < 450000
+          && request.resource.data.updatedAt is int;
+      }
 
       function inCircle() {
         return exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid));

@@ -51,8 +51,71 @@ window.SOC = (function () {
   /** Copies the shareable parts of the signed-in person's account to their public profile. */
   async function syncProfile(user) {
     const data = publicFields(user);
-    await run(function () { return F().setDoc(profileDoc(user.id), data); });
-    profileCache[user.id] = Object.assign({ id: user.id }, data);
+    /* merge keeps the cover photo, education and work, which live only on the public profile. */
+    await run(function () { return F().setDoc(profileDoc(user.id), data, { merge: true }); });
+    profileCache[user.id] = Object.assign({ id: user.id }, profileCache[user.id] || {}, data);
+  }
+
+  /* ---------- Profile extras: cover photo, education, work ---------- */
+
+  const COVER_MAX = 450000;
+  const EDU_MAX = 3;
+  const WORK_MAX = 6;
+
+  function cleanText(value, max) { return String(value || '').trim().replace(/\s+/g, ' ').slice(0, max); }
+
+  /** Checks and tidies { cover, education: [{school, course, year}], work: [{title, company, start, end}] }. */
+  function cleanExtras(extras) {
+    const education = (extras.education || []).map(function (e) {
+      return { school: cleanText(e.school, 80), course: cleanText(e.course, 80), year: cleanText(e.year, 20) };
+    }).filter(function (e) { return e.school || e.course; }).slice(0, EDU_MAX);
+    const work = (extras.work || []).map(function (w) {
+      return { title: cleanText(w.title, 60), company: cleanText(w.company, 80), start: /^[0-9]{4}-[0-9]{2}$/.test(w.start || '') ? w.start : '', end: /^[0-9]{4}-[0-9]{2}$/.test(w.end || '') ? w.end : '' };
+    }).filter(function (w) { return w.title || w.company; }).slice(0, WORK_MAX);
+    work.forEach(function (w) { if (w.start && w.end && w.end < w.start) throw new BT.UserError('A job can\u2019t end before it starts (' + (w.title || w.company) + ').'); });
+    const cover = extras.cover || null;
+    if (cover && (typeof cover !== 'string' || cover.indexOf('data:image/jpeg;base64,') !== 0 || cover.length >= COVER_MAX)) throw new BT.UserError('That cover photo is too large. Try a smaller image.');
+    return { cover: cover, education: education, work: work };
+  }
+
+  /* The cover photo lives in profiles/{uid}/cover/photo so lists and chats don't download it. */
+  const coverDoc = function (uid) { return F().doc(db(), 'profiles', uid, 'cover', 'photo'); };
+
+  async function saveProfileExtras(extras) {
+    const data = cleanExtras(extras);
+    const batch = F().writeBatch(db());
+    batch.update(profileDoc(me()), { education: data.education, work: data.work });
+    if (data.cover) batch.set(coverDoc(me()), { data: data.cover, updatedAt: Date.now() });
+    else batch.delete(coverDoc(me()));
+    await run(function () { return batch.commit(); });
+    profileCache[me()] = Object.assign({ id: me() }, profileCache[me()] || {}, { education: data.education, work: data.work });
+    return data;
+  }
+
+  async function loadCover(uid) {
+    const snap = await run(function () { return F().getDoc(coverDoc(uid)); });
+    return snap.exists() ? snap.data().data : null;
+  }
+
+  /** Fresh copy of a profile (skips the cache), for the profile page. */
+  async function loadProfile(uid) {
+    const snap = await run(function () { return F().getDoc(profileDoc(uid)); });
+    if (!snap.exists()) return null;
+    profileCache[uid] = Object.assign({ id: uid }, snap.data());
+    return profileCache[uid];
+  }
+
+  /** Posts from you and your circle, newest first. */
+  async function feedPosts(limit) {
+    const people = await circleMembers();
+    const sources = [{ person: Object.assign({ id: me() }, profileCache[me()] || {}), rel: 'self' }]
+      .concat(people.map(function (p) { return { person: p, rel: 'circle' }; }));
+    const lists = await Promise.all(sources.map(function (src) {
+      return listPosts(src.person.id, src.rel).then(function (posts) {
+        return posts.map(function (post) { return { person: src.person, post: post, mine: src.rel === 'self' }; });
+      }).catch(function () { return []; });
+    }));
+    return [].concat.apply([], lists).sort(function (a, b) { return b.post.createdAt - a.post.createdAt; }).slice(0, limit || 60);
   }
 
   /** Makes sure accounts created before profiles existed get one. */
@@ -606,6 +669,7 @@ window.SOC = (function () {
     lists[1].docs.forEach(function (d) { refs.push(circleDoc(d.id, uid)); });
     refs.push(profileDoc(uid));
     refs.push(trustDoc(uid));
+    refs.push(coverDoc(uid));
     const myAccounts = await run(function () { return F().getDocs(accountsCol(uid)); });
     myAccounts.docs.forEach(function (d) { refs.push(d.ref); });
     const sharedWithMe = await run(function () { return F().getDocs(F().query(F().collection(db(), 'trust'), F().where('member', '==', uid))); });
@@ -643,6 +707,7 @@ window.SOC = (function () {
     watchNotifications: watchNotifications, stopWatching: stopWatching, onNotifications: onNotifications,
     notifications: notifications, unreadCount: unreadCount, markAllRead: markAllRead, dismissNotification: dismissNotification,
     deleteEverything: deleteEverything,
+    loadCover: loadCover, EDU_MAX: EDU_MAX, WORK_MAX: WORK_MAX, COVER_MAX: COVER_MAX, saveProfileExtras: saveProfileExtras, loadProfile: loadProfile, feedPosts: feedPosts,
     TRUST_ROLES: TRUST_ROLES, watchTrust: watchTrust, stopWatchingTrust: stopWatchingTrust, onTrust: onTrust,
     myTrust: myTrust, trustedMe: trustedMe, trustLoaded: trustLoaded, trustFrom: trustFrom,
     inviteTrusted: inviteTrusted, setTrustRole: setTrustRole, syncTrustCurrency: syncTrustCurrency, removeTrusted: removeTrusted,

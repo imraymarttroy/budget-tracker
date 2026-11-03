@@ -233,11 +233,11 @@
     if (/^d\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'shared';
     if (wanted === 'messages') return 'chat';
     if (wanted === 'notifications') return 'alerts';
-    return ['profile', 'circle', 'alerts', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
+    return ['feed', 'profile', 'circle', 'alerts', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
   }
 
   /* Views that show the sidebar. Only the signed-in owner of the account ever sees it. */
-  const SHELL_VIEWS = ['dashboard', 'shared', 'profile', 'person', 'circle', 'alerts', 'settings'];
+  const SHELL_VIEWS = ['dashboard', 'shared', 'feed', 'profile', 'person', 'circle', 'alerts', 'settings'];
 
   const VIEWS = {
     signin: { title: 'Sign in', render: viewAuth },
@@ -246,6 +246,7 @@
     verify: { title: 'Verify your email', render: viewVerify },
     setup: { title: 'Set up your profile', render: viewSetup },
     dashboard: { title: 'Dashboard', render: viewDashboard },
+    feed: { title: 'Feed', render: viewFeed },
     profile: { title: 'Profile', render: viewTimeline },
     person: { title: 'Profile', render: viewPerson },
     shared: { title: 'Dashboard', render: viewShared },
@@ -1036,6 +1037,7 @@
     profile: '<circle cx="10" cy="7" r="3.5"/><path d="M3.5 17c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/>',
     circle: '<circle cx="7" cy="7.5" r="2.75"/><circle cx="13.5" cy="8" r="2.25"/><path d="M2.5 16c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4M12 12.2c2.3-.4 4.5.9 5.2 3.8"/>',
     messages: '<path d="M3.5 5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-3.5 3v-3a2 2 0 0 1-2-2z"/>',
+    feed: '<rect x="3" y="3" width="14" height="14" rx="2.5"/><path d="M6.5 7h7M6.5 10h7M6.5 13h4"/>',
     notifications: '<path d="M5 13.5V9a5 5 0 0 1 10 0v4.5l1.5 1.5h-13z"/><path d="M8.5 17.5a1.6 1.6 0 0 0 3 0"/>',
     settings: '<circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/>',
     signout: '<path d="M8 4H4.5v12H8M12 6.5 15.5 10 12 13.5M15.5 10H7.5"/>'
@@ -1117,6 +1119,7 @@
           item('dashboard', '#dashboard', 'Dashboard',
             h('span', { class: 'nav-pin', title: 'Private: only you can see your dashboard' }, icon('pin'), h('span', { class: 'vh' }, '(private)'))),
           sharedNav(view),
+          item('feed', '#feed', 'Feed'),
           item('profile', '#profile', 'Profile'),
           item('circle', '#circle', 'Circle'),
           h('li', null, h('button', {
@@ -1434,17 +1437,6 @@
     return node;
   }
 
-  function viewTimeline() {
-    const user = BT.currentUser();
-    const person = Object.assign({ id: user.id }, { name: user.name, username: user.username, avatar: user.avatar, bio: user.bio });
-    const posts = postList(person, 'self');
-    return h('div', { class: 'wide' },
-      profileHeader(person, h('a', { class: 'btn', href: '#settings' }, 'Edit profile'), circleCount(user.id)),
-      composer(user, function () { posts.reload(); }),
-      h('h2', { class: 'posts-title' }, 'Posts'),
-      posts);
-  }
-
   function relationActions(person, rel, redraw) {
     async function act(button, work, message) {
       button.disabled = true;
@@ -1484,31 +1476,358 @@
     return add;
   }
 
-  function viewPerson() {
-    const username = location.hash.slice(3);
-    const box = h('div', { class: 'wide' }, h('p', { class: 'muted' }, 'Loading profile…'));
+  /* ---------- Feed ---------- */
+
+  function viewFeed() {
+    const user = BT.currentUser();
+    const list = h('div', { class: 'posts' }, h('p', { class: 'muted small' }, 'Loading your feed…'));
     async function load() {
       try {
-        const person = await SOC.findByUsername(username);
+        const items = await SOC.feedPosts(60);
+        if (!list.isConnected && list.parentNode) return;
+        if (!items.length) {
+          list.replaceChildren(h('p', { class: 'empty' }, 'Nothing here yet. Share something, or add people to your ', h('a', { href: '#circle' }, 'circle'), ' to see their posts.'));
+          return;
+        }
+        list.replaceChildren.apply(list, items.map(function (item) {
+          const person = item.mine ? Object.assign({}, item.person, { id: user.id, name: user.name, username: user.username, avatar: user.avatar }) : item.person;
+          return postCard(person, item.post, item.mine, load);
+        }));
+      } catch (error) {
+        list.replaceChildren(h('p', { class: 'empty' }, error.message || 'We could not load your feed.'));
+      }
+    }
+    load();
+    return h('div', { class: 'wide' },
+      h('h1', { style: 'margin-bottom:1.25rem' }, 'Feed'),
+      composer(user, load),
+      h('h2', { class: 'posts-title' }, 'From you and your circle'),
+      list);
+  }
+
+  /* ---------- Profile (dashboard style) ---------- */
+
+  const PROFILE_ICONS = {
+    school: '<path d="M2 8 10 4l8 4-8 4z"/><path d="M5.5 9.8V14c1.2 1.3 2.7 2 4.5 2s3.3-.7 4.5-2V9.8M18 8v4.5"/>',
+    work: '<rect x="2.5" y="6" width="15" height="10.5" rx="2"/><path d="M7 6V4.5A1.5 1.5 0 0 1 8.5 3h3A1.5 1.5 0 0 1 13 4.5V6M2.5 10.5h15"/>',
+    circle: '<circle cx="7" cy="7.5" r="2.75"/><circle cx="13.5" cy="8" r="2.25"/><path d="M2.5 16c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4M12 12.2c2.3-.4 4.5.9 5.2 3.8"/>',
+    camera: '<path d="M3 7a2 2 0 0 1 2-2h1.5l1.2-1.8h4.6L13.5 5H15a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="10" cy="10.5" r="3"/>',
+    plus: '<path d="M10 4v12M4 10h12"/>'
+  };
+  function pIcon(name) {
+    const holder = document.createElement('span');
+    holder.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + PROFILE_ICONS[name] + '</svg>';
+    return holder.firstChild;
+  }
+
+  function monthYear(ym) {
+    if (!ym) return '';
+    const parts = ym.split('-');
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, 1).toLocaleDateString(I18N.locale, { month: 'short', year: 'numeric' });
+  }
+  function workSpan(w) {
+    if (!w.start && !w.end) return '';
+    return (w.start ? monthYear(w.start) : '?') + ' – ' + (w.end ? monthYear(w.end) : 'Present');
+  }
+  /** Current job first (no end date), then by most recent start. */
+  function sortedWork(list) {
+    return (list || []).slice().sort(function (a, b) {
+      if (!a.end !== !b.end) return a.end ? 1 : -1;
+      return (b.start || '').localeCompare(a.start || '');
+    });
+  }
+
+  /**
+   * The profile page for anyone. opts: { mine, rel, actions, onEdit }.
+   */
+  function profilePage(person, opts) {
+    const first = person.name.split(' ')[0];
+    const hero = h('section', { class: 'pf-card pf-hero' },
+      h('div', { class: 'pf-hero-glow', 'aria-hidden': 'true' }, h('span'), h('span')),
+      h('div', { class: 'pf-hero-copy' },
+        h('span', { class: 'pf-kicker' }, opts.mine ? 'Your profile' : opts.rel === 'circle' ? 'In your circle' : 'PassbookHub member'),
+        h('h1', { class: 'pf-name' }, person.name),
+        h('p', { class: 'pf-handle' }, '@' + person.username),
+        person.bio ? h('p', { class: 'pf-bio' }, person.bio) : (opts.mine ? h('p', { class: 'pf-bio muted-on-brand' }, 'Add a short bio so your circle knows you.') : null),
+        opts.actions ? h('div', { class: 'pf-actions' }, opts.actions) : null),
+      h('div', { class: 'pf-hero-photo' }, avatar(person, person.avatar, 9)));
+    SOC.loadCover(person.id).then(function (cover) {
+      if (cover) { hero.style.setProperty('--cover', 'url("' + cover + '")'); hero.classList.add('has-cover'); }
+    }).catch(function () {});
+
+    const work = sortedWork(person.work);
+    const current = work.find(function (w) { return !w.end; });
+    const edu = person.education || [];
+    const circleStat = h('span', { class: 'pf-stat-value num' }, '–');
+    const circleList = h('div', { class: 'pf-circle-list' }, h('p', { class: 'small muted' }, 'Loading…'));
+    if (opts.mine) {
+      SOC.circleMembers(person.id).then(function (people) {
+        circleStat.textContent = String(people.length);
+        if (!people.length) {
+          circleList.replaceChildren(h('p', { class: 'small muted' }, 'No one yet. ', h('a', { href: '#circle' }, 'Find people'), '.'));
+          return;
+        }
+        circleList.replaceChildren(h('ul', { class: 'pf-circle-people' }, people.slice(0, 8).map(function (p) {
+          return h('li', null, h('a', { href: '#u/' + p.username, title: p.name }, avatar(p, p.avatar, 2.5), h('span', { class: 'small' }, p.name.split(' ')[0])));
+        })), people.length > 8 ? h('a', { class: 'small', href: '#circle' }, 'See all ' + people.length) : '');
+      }).catch(function () { circleList.replaceChildren(h('p', { class: 'small muted' }, 'We could not load your circle.')); });
+    }
+
+    function stat(iconName, label, value, sub) {
+      return h('div', { class: 'pf-stat' },
+        h('span', { class: 'pf-stat-label' }, pIcon(iconName), label),
+        typeof value === 'string' ? h('span', { class: 'pf-stat-value' + (/^[0-9\u2013]+$/.test(value) ? '' : ' long'), title: value }, value) : value,
+        sub ? h('span', { class: 'pf-stat-sub small' }, sub) : null);
+    }
+    const stats = h('section', { class: 'pf-card pf-stats', 'aria-label': 'At a glance' },
+      opts.mine ? stat('circle', 'Circle', circleStat, 'people') : stat('circle', 'Circle', opts.rel === 'circle' ? 'Connected' : opts.rel === 'sent' ? 'Requested' : 'Not yet', opts.rel === 'circle' ? 'in your circle' : null),
+      stat('school', 'Studied at', edu[0] ? (edu[0].school || edu[0].course) : '–', edu[0] && edu[0].year ? edu[0].year : null),
+      stat('work', 'Works at', current ? (current.company || current.title) : '–', current && current.company ? current.title : null));
+
+    function emptyNote(text) {
+      return h('p', { class: 'pf-empty small' }, text,
+        opts.mine ? [' ', h('button', { type: 'button', class: 'link', onclick: opts.onEdit }, 'Add it')] : null);
+    }
+
+    const eduCard = h('section', { class: 'pf-card pf-list-card' },
+      h('div', { class: 'pf-card-head' }, h('h2', null, 'Education'), pIcon('school')),
+      edu.length ? h('ul', { class: 'pf-items' }, edu.map(function (e) {
+        return h('li', { class: 'pf-item' },
+          h('span', { class: 'pf-item-icon' }, pIcon('school')),
+          h('span', { class: 'pf-item-text' },
+            h('strong', null, e.school || e.course),
+            e.school && e.course ? h('span', null, e.course) : null,
+            e.year ? h('span', { class: 'small muted' }, e.year) : null));
+      })) : emptyNote(opts.mine ? 'Where did you go to college?' : first + ' hasn’t added their education.'));
+
+    const workCard = h('section', { class: 'pf-card pf-list-card' },
+      h('div', { class: 'pf-card-head' }, h('h2', null, 'Work experience'), pIcon('work')),
+      work.length ? h('ol', { class: 'pf-timeline' }, work.map(function (w) {
+        return h('li', { class: 'pf-tl-item' + (w.end ? '' : ' now') },
+          h('span', { class: 'pf-tl-dot', 'aria-hidden': 'true' }),
+          h('span', { class: 'pf-item-text' },
+            h('strong', null, w.title || w.company),
+            w.title && w.company ? h('span', null, w.company) : null,
+            workSpan(w) ? h('span', { class: 'small muted' }, workSpan(w)) : null),
+          w.end ? null : h('span', { class: 'pf-now' }, 'Now'));
+      })) : emptyNote(opts.mine ? 'Add your current work or past experience.' : first + ' hasn’t added work experience.'));
+
+    const side = [];
+    if (opts.mine) {
+      side.push(h('section', { class: 'pf-card pf-list-card' },
+        h('div', { class: 'pf-card-head' }, h('h2', null, 'Your circle'), h('a', { class: 'small', href: '#circle' }, 'Manage')),
+        circleList));
+    }
+    side.push(workCard);
+
+    return h('div', { class: 'pf-page' },
+      h('div', { class: 'pf-main' }, hero, stats, eduCard),
+      h('div', { class: 'pf-side' }, side));
+  }
+
+  /** Crops to a wide 3:1 banner and keeps it under the size limit. */
+  async function toCoverData(file) {
+    if (!/^image\//.test(file.type)) throw new BT.UserError('Choose an image file.');
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await loadImage(url);
+      const w = img.naturalWidth, hgt = img.naturalHeight;
+      const ratio = 3;
+      let sw = w, sh = Math.round(w / ratio);
+      if (sh > hgt) { sh = hgt; sw = Math.round(hgt * ratio); }
+      const sx = Math.round((w - sw) / 2), sy = Math.round((hgt - sh) / 2);
+      for (const [max, q] of [[1500, 0.82], [1200, 0.78], [1000, 0.72], [800, 0.68]]) {
+        const scale = Math.min(1, max / sw);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(sw * scale); canvas.height = Math.round(sh * scale);
+        canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        const data = canvas.toDataURL('image/jpeg', q);
+        if (data.length < SOC.COVER_MAX - 1000) return data;
+      }
+      throw new BT.UserError('That image is too large. Try a smaller one.');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  /** Edit cover photo, picture, bio, education and work in one dialog. */
+  async function editProfile(onSaved) {
+    const user = BT.currentUser();
+    const profile = (await SOC.loadProfile(user.id).catch(function () { return null; })) || {};
+    let cover = await SOC.loadCover(user.id).catch(function () { return null; });
+    const previous = document.activeElement;
+    const fields = profileFields(user, function () { return user.name; });
+
+    const coverBox = h('div', { class: 'pf-cover-edit' });
+    const coverError = h('p', { class: 'error small', hidden: true });
+    const coverInput = h('input', { type: 'file', accept: 'image/*', class: 'vh', onchange: async function () {
+      const file = coverInput.files[0]; coverInput.value = '';
+      if (!file) return;
+      coverError.hidden = true;
+      try { cover = await toCoverData(file); drawCover(); }
+      catch (e) { coverError.textContent = e.message; coverError.hidden = false; }
+    } });
+    function drawCover() {
+      coverBox.style.backgroundImage = cover ? 'url("' + cover + '")' : '';
+      coverBox.classList.toggle('empty', !cover);
+      coverBox.replaceChildren(
+        h('label', { class: 'btn small pf-cover-btn' }, pIcon('camera'), h('span', null, cover ? 'Change cover' : 'Add cover photo'), coverInput),
+        cover ? h('button', { type: 'button', class: 'btn small pf-cover-btn', onclick: function () { cover = null; drawCover(); } }, 'Remove') : null);
+    }
+    drawCover();
+
+    /* Repeatable rows for education and work. */
+    function rows(kind, items, max, make) {
+      const list = h('div', { class: 'pf-rows' });
+      const addBtn = h('button', { type: 'button', class: 'btn small', onclick: function () { list.appendChild(make({})); sync(); const f = list.lastChild.querySelector('input'); if (f) f.focus(); } }, pIcon('plus'), h('span', null, kind === 'edu' ? 'Add school' : 'Add work'));
+      function sync() { addBtn.hidden = list.children.length >= max; }
+      items.forEach(function (it) { list.appendChild(make(it)); });
+      sync();
+      list.sync = sync;
+      return { list: list, add: addBtn };
+    }
+    let uid = 0;
+    function input(label, value, attrs) {
+      const id = 'pf-in-' + (++uid);
+      const control = h('input', Object.assign({ id: id, value: value || '', autocomplete: 'off' }, attrs || {}));
+      control.value = value || '';
+      return h('div', { class: 'acct-field' + (attrs && attrs.grow ? ' grow' : '') }, h('label', { for: id }, label), control);
+    }
+    function removeBtn(row, what) {
+      return h('button', { type: 'button', class: 'icon-btn pf-row-x', 'aria-label': 'Remove ' + what, title: 'Remove', onclick: function () { const list = row.parentNode; row.remove(); if (list && list.sync) list.sync(); } }, icon('close'));
+    }
+    let eduRows, workRows;
+    function eduRow(e) {
+      const row = h('div', { class: 'pf-row', 'data-kind': 'edu' });
+      row.append(
+        h('div', { class: 'acct-row' }, input('School', e.school, { maxlength: 80, grow: true, placeholder: 'e.g. University of the Philippines', 'data-k': 'school' })),
+        h('div', { class: 'acct-row' }, input('Course', e.course, { maxlength: 80, grow: true, placeholder: 'e.g. BS Accountancy', 'data-k': 'course' }), input('Year', e.year, { maxlength: 20, placeholder: '2018 – 2022', 'data-k': 'year' })),
+        removeBtn(row, 'school'));
+      return row;
+    }
+    function workRow(w) {
+      const row = h('div', { class: 'pf-row', 'data-kind': 'work' });
+      const endField = input('End', w.end, { type: 'month', 'data-k': 'end' });
+      const nowBox = h('input', { type: 'checkbox', 'data-k': 'now' });
+      nowBox.checked = !!(w.title || w.company) && !w.end;
+      function syncNow() { endField.hidden = nowBox.checked; }
+      nowBox.addEventListener('change', syncNow);
+      row.append(
+        h('div', { class: 'acct-row' }, input('Job title', w.title, { maxlength: 60, grow: true, placeholder: 'e.g. Junior Accountant', 'data-k': 'title' }), input('Company', w.company, { maxlength: 80, grow: true, placeholder: 'e.g. SM Investments', 'data-k': 'company' })),
+        h('div', { class: 'acct-row pf-dates' }, input('Start', w.start, { type: 'month', 'data-k': 'start' }), endField,
+          h('label', { class: 'pf-now-check small' }, nowBox, 'I work here now')),
+        removeBtn(row, 'work'));
+      syncNow();
+      return row;
+    }
+    eduRows = { list: null }; workRows = { list: null };
+    const e1 = rows('edu', profile.education && profile.education.length ? profile.education : [{}], SOC.EDU_MAX, eduRow);
+    eduRows = e1;
+    const w1 = rows('work', profile.work && profile.work.length ? sortedWork(profile.work) : [{}], SOC.WORK_MAX, workRow);
+    workRows = w1;
+
+    function read(kind) {
+      return Array.prototype.map.call((kind === 'edu' ? eduRows : workRows).list.children, function (row) {
+        const out = {};
+        row.querySelectorAll('[data-k]').forEach(function (c) { out[c.dataset.k] = c.type === 'checkbox' ? c.checked : c.value; });
+        if (kind === 'work' && out.now) out.end = '';
+        return out;
+      });
+    }
+
+    const errorBox = h('p', { class: 'form-error', role: 'alert', hidden: true });
+    const save = h('button', { type: 'submit', class: 'btn primary' }, 'Save profile');
+    const form = h('form', {
+      class: 'acct-form pf-edit', novalidate: true,
+      onsubmit: async function (event) {
+        event.preventDefault();
+        errorBox.hidden = true;
+        save.disabled = true;
+        try {
+          await BT.updateUser(user.id, { avatar: fields.data.picture, bio: fields.bio.value.trim() });
+          await SOC.syncProfile(BT.currentUser());
+          await SOC.saveProfileExtras({ cover: cover, education: read('edu'), work: read('work') });
+          toast('Profile saved.');
+          close();
+          onSaved();
+        } catch (error) {
+          save.disabled = false;
+          errorBox.textContent = error instanceof BT.UserError ? error.message : 'We could not save your profile.';
+          errorBox.hidden = false;
+        }
+      }
+    },
+    h('div', { class: 'acct-head' }, h('h2', { id: 'pf-edit-title' }, 'Edit profile'),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', title: 'Close', onclick: function () { close(); } }, icon('close'))),
+    h('div', { class: 'acct-field' }, h('span', { class: 'acct-label' }, 'Cover photo'), coverBox, coverError),
+    fields.picker,
+    fields.bioField,
+    h('fieldset', { class: 'pf-fieldset' }, h('legend', null, 'Education'), e1.list, e1.add),
+    h('fieldset', { class: 'pf-fieldset' }, h('legend', null, 'Work experience'), w1.list, w1.add),
+    errorBox,
+    h('div', { class: 'ask-actions' }, h('a', { class: 'link small', href: '#settings', onclick: function () { close(); } }, 'Change name or currency'), h('span', { class: 'grow' }),
+      h('button', { type: 'button', class: 'btn', onclick: function () { close(); } }, 'Cancel'), save));
+
+    const overlay = h('div', { class: 'chat-overlay ask acct-overlay' },
+      h('div', { class: 'ask-card acct-card pf-edit-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'pf-edit-title' }, form));
+    function onKey(event) { if (event.key === 'Escape') close(); }
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      if (previous && previous.isConnected) previous.focus();
+    }
+    overlay.addEventListener('click', function (event) { if (event.target === overlay) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    form.querySelector('.pf-cover-btn').focus();
+  }
+
+  function viewTimeline() {
+    const user = BT.currentUser();
+    const box = h('div', { class: 'wide pf-wide' }, h('p', { class: 'muted' }, 'Loading profile…'));
+    function draw() {
+      const me = BT.currentUser();
+      SOC.loadProfile(me.id).catch(function () { return null; }).then(function (p) {
         if (!box.isConnected && box.parentNode) return;
-        if (!person) {
+        const person = Object.assign({}, p || {}, { id: me.id, name: me.name, username: me.username, avatar: me.avatar, bio: me.bio });
+        box.replaceChildren(profilePage(person, {
+          mine: true,
+          onEdit: function () { editProfile(draw); },
+          actions: [
+            h('button', { type: 'button', class: 'btn pf-btn', onclick: function () { editProfile(draw); } }, icon('edit'), h('span', null, 'Edit profile')),
+            h('a', { class: 'btn pf-btn ghost', href: '#feed' }, navIcon('feed'), h('span', null, 'Go to Feed'))
+          ]
+        }));
+      });
+    }
+    draw();
+    return box;
+  }
+
+  function viewPerson() {
+    const username = location.hash.slice(3);
+    const box = h('div', { class: 'wide pf-wide' }, h('p', { class: 'muted' }, 'Loading profile…'));
+    async function load() {
+      try {
+        const found = await SOC.findByUsername(username);
+        if (!box.isConnected && box.parentNode) return;
+        if (!found) {
           box.replaceChildren(h('div', { class: 'empty-state' },
             h('h1', null, 'Profile not found'),
             h('p', { class: 'muted' }, 'No one on PassbookHub has the username @' + username + '.'),
             h('a', { class: 'btn', href: '#circle' }, 'Search for people')));
           return;
         }
-        if (person.id === BT.currentUser().id) { location.hash = '#profile'; return; }
+        if (found.id === BT.currentUser().id) { location.hash = '#profile'; return; }
+        const person = (await SOC.loadProfile(found.id).catch(function () { return null; })) || found;
         const rel = await SOC.relation(person.id);
         document.title = person.name + ' · PassbookHub';
-        box.replaceChildren(
-          profileHeader(person, rel === 'circle'
+        box.replaceChildren(profilePage(person, {
+          mine: false, rel: rel,
+          actions: rel === 'circle'
             ? h('div', { class: 'row' }, messageButton(person, true), relationActions(person, rel, load))
-            : relationActions(person, rel, load), null),
-          rel === 'circle' ? null : h('p', { class: 'small muted vis-note' },
-            rel === 'none' || rel === 'sent' ? 'You can see ' + person.name.split(' ')[0] + '’s public posts. Join their circle to see posts shared with their circle.' : ''),
-          h('h2', { class: 'posts-title' }, 'Posts'),
-          postList(person, rel));
+            : relationActions(person, rel, load)
+        }));
       } catch (error) {
         box.replaceChildren(h('p', { class: 'empty' }, error.message || 'We could not load this profile.'));
       }
