@@ -57,7 +57,10 @@
     file: '<path d="M11.5 2.5H6a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 6 17.5h8a1.5 1.5 0 0 0 1.5-1.5V6.5z"/><path d="M11.5 2.5v4h4"/>',
     gallery: '<rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.2"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.2"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.2"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.2"/>',
     play: '<path d="M7 5v10l8-5z" fill="currentColor"/>',
-    download: '<path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/>'
+    download: '<path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/>',
+    addPerson: '<circle cx="8" cy="7" r="3"/><path d="M2.5 16.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5M15.5 5.5v5M13 8h5"/>',
+    profile: '<circle cx="10" cy="7" r="3.25"/><path d="M3.5 17c.8-3 3.4-4.75 6.5-4.75s5.7 1.75 6.5 4.75"/>',
+    pending: '<circle cx="10" cy="10" r="7.5"/><path d="M10 6v4l2.5 2"/>'
   };
 
   /* Icon markup comes only from the constant table above. */
@@ -1440,7 +1443,44 @@
 
     function searchExtra(person, circle) {
       if (circle.ids[person.id]) return messageButton(person);
-      return h('a', { class: 'btn msg-btn', href: '#u/' + person.username, title: 'Add ' + person.name + ' to your circle to send messages' }, 'View profile');
+      return circleIcons(person);
+    }
+
+    /* Two icons for someone outside your circle: add to circle, and view profile. */
+    function circleIcons(person) {
+      const first = person.name.split(' ')[0];
+      const add = h('button', { type: 'button', class: 'icon-btn person-icon' });
+      const view = h('a', { class: 'icon-btn person-icon', href: '#u/' + person.username, 'aria-label': 'View ' + person.name + '’s profile', title: 'View profile' }, icon('profile'));
+      const box = h('div', { class: 'person-actions' }, add, view);
+      let rel = 'none';
+      function draw() {
+        if (rel === 'circle') { box.replaceChildren(messageButton(person)); return; }
+        const look = {
+          none: ['addPerson', 'Add ' + person.name + ' to your circle', 'Add to circle'],
+          sent: ['pending', 'Circle request sent to ' + person.name + '. Tap to cancel.', 'Request sent · Tap to cancel'],
+          received: ['check', 'Accept ' + person.name + '’s circle request', first + ' wants to add you · Tap to accept']
+        }[rel];
+        add.replaceChildren(icon(look[0]));
+        add.setAttribute('aria-label', look[1]);
+        add.title = look[2];
+        add.className = 'icon-btn person-icon' + (rel === 'sent' ? '' : ' add');
+        add.disabled = false;
+      }
+      add.addEventListener('click', async function () {
+        add.disabled = true;
+        try {
+          if (rel === 'none') { await SOC.sendRequest(person.id); rel = 'sent'; toast('Circle request sent to ' + person.name + '.'); }
+          else if (rel === 'sent') { await SOC.cancelRequest(person.id); rel = 'none'; toast('Request cancelled.'); }
+          else if (rel === 'received') { await SOC.acceptRequest(person.id); rel = 'circle'; toast(person.name + ' is now in your circle.'); }
+        } catch (error) {
+          toast(error.message);
+        }
+        draw();
+      });
+      draw();
+      add.disabled = true;
+      SOC.relation(person.id).then(function (r) { rel = r; draw(); }).catch(function () { draw(); });
+      return box;
     }
 
     async function runSearch() {
