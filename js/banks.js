@@ -148,7 +148,7 @@ window.BANKS = (function () {
   };
   const GENERIC = [
     ['cash', 'Cash', '#2f6f4f', '#d9f2c4'],
-    ['other', 'Other bank', '#333138', '#ff312e']
+    ['other', 'Other bank', '#272635', '#b1e5f2']
   ];
 
   function make(row) { return { id: row[0], name: row[1], color: row[2], accent: row[3] }; }

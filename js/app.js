@@ -336,7 +336,7 @@
     canvas.setAttribute('aria-label', 'QR code to add PassbookHub to your authenticator app');
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, px, px);
-    ctx.fillStyle = '#000103';
+    ctx.fillStyle = '#272635';
     for (let r = 0; r < count; r++) for (let c = 0; c < count; c++) if (qr.isDark(r, c)) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
     return canvas;
   }
