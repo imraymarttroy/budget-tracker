@@ -62,7 +62,8 @@
     download: '<path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/>',
     addPerson: '<circle cx="8" cy="7" r="3"/><path d="M2.5 16.5c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5M15.5 5.5v5M13 8h5"/>',
     profile: '<circle cx="10" cy="7" r="3.25"/><path d="M3.5 17c.8-3 3.4-4.75 6.5-4.75s5.7 1.75 6.5 4.75"/>',
-    pending: '<circle cx="10" cy="10" r="7.5"/><path d="M10 6v4l2.5 2"/>'
+    pending: '<circle cx="10" cy="10" r="7.5"/><path d="M10 6v4l2.5 2"/>',
+    minimize: '<path d="M5 10h10"/>'
   };
 
   /* Icon markup comes only from the constant table above. */
@@ -245,7 +246,6 @@
     person: { title: 'Profile', render: viewPerson },
     circle: { title: 'Circle', render: viewCircle },
     messages: { title: 'Messages', render: viewMessages },
-    chat: { title: 'Messages', render: viewChat },
     notifications: { title: 'Notifications', render: viewNotifications },
     settings: { title: 'Settings', render: viewSettings },
     offline: { title: 'Could not load', render: viewOffline },
@@ -254,11 +254,18 @@
   };
 
   function render() {
-    const view = resolveView();
+    let view = resolveView();
+    if (view === 'chat') {
+      /* Old #chat/username links: show Messages and open that conversation in the floating chat. */
+      const username = location.hash.slice(6);
+      history.replaceState(null, '', '#messages');
+      view = 'messages';
+      setTimeout(function () { dock.open(username); }, 0);
+    }
     if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); SOC.stopWatchingChats(); }
     if (state.cleanup) { state.cleanup(); state.cleanup = null; }
-    if (view === 'person' || view === 'chat') {
-      /* keep #u/username and #chat/username as they are */
+    if (view === 'person') {
+      /* keep #u/username as it is */
     } else if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
     const changed = view !== state.view;
     state.view = view;
@@ -272,6 +279,7 @@
     } else {
       root.replaceChildren(content);
     }
+    dock.sync(SHELL_VIEWS.indexOf(view) !== -1);
     if (changed) {
       window.scrollTo(0, 0);
       const heading = root.querySelector('h1');
@@ -1637,31 +1645,52 @@
     return d.toLocaleDateString(I18N.locale, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
   }
 
-  function viewChat() {
-    const username = location.hash.slice(6);
-    const box = h('div', { class: 'wide chat-page' }, h('p', { class: 'muted' }, 'Loading conversation…'));
+  /**
+   * One conversation, built to live in the floating chat window (bottom right).
+   * hooks: { isOpen(), minimize(), close(), onPerson(person) }
+   * Returns { el, refresh(), focus(), destroy() }.
+   */
+  function chatPanel(username, hooks) {
+    const box = h('div', { class: 'chat-pop-body' }, h('p', { class: 'muted small chat-pop-note' }, 'Loading conversation…'));
     let stop = null;
     let closed = false;
-    state.cleanup = function () { closed = true; if (stop) stop(); stop = null; state.onChatsChange = null; };
+    const cleanups = [];
+    const api = {
+      el: box,
+      refresh: function () {},
+      focus: function () {},
+      destroy: function () {
+        closed = true;
+        if (stop) stop();
+        stop = null;
+        cleanups.forEach(function (fn) { fn(); });
+      }
+    };
+
+    function windowTools() {
+      return [
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Minimize chat', title: 'Minimize', onclick: function () { hooks.minimize(); } }, icon('minimize')),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close chat', title: 'Close', onclick: function () { hooks.close(); } }, icon('close'))
+      ];
+    }
+
+    function problem(text) {
+      box.replaceChildren(h('header', { class: 'chat-head' }, h('span', { class: 'person-link' }), h('div', { class: 'chat-head-tools' }, windowTools())),
+        h('p', { class: 'muted small chat-pop-note' }, text));
+    }
 
     async function load() {
       try {
         const person = await SOC.findByUsername(username);
         if (closed) return;
-        if (!person) {
-          box.replaceChildren(h('div', { class: 'empty-state' },
-            h('h1', null, 'Person not found'),
-            h('p', { class: 'muted' }, 'No one on PassbookHub has the username @' + username + '.'),
-            h('a', { class: 'btn', href: '#messages' }, 'Back to messages')));
-          return;
-        }
-        if (person.id === BT.currentUser().id) { location.hash = '#messages'; return; }
+        if (!person) { problem('No one on PassbookHub has the username @' + username + '.'); return; }
+        if (person.id === BT.currentUser().id) { hooks.close(); return; }
+        hooks.onPerson(person);
         const rel = await SOC.relation(person.id);
         if (closed) return;
-        document.title = person.name + ' · Messages · PassbookHub';
         draw(person, rel === 'circle');
       } catch (error) {
-        if (!closed) box.replaceChildren(h('p', { class: 'empty' }, error.message || 'We could not load this conversation.'));
+        if (!closed) problem(error.message || 'We could not load this conversation.');
       }
     }
 
@@ -1678,15 +1707,14 @@
       const search = { open: false, query: '', hits: [], index: -1 };
       const urls = {};
 
-      const parentCleanup = state.cleanup;
-      state.cleanup = function () {
-        parentCleanup();
+      cleanups.push(function () {
         Object.keys(urls).forEach(function (k) { URL.revokeObjectURL(urls[k]); });
-        document.querySelectorAll('.chat-overlay').forEach(function (d) { d.remove(); });
-      };
+        document.querySelectorAll('.chat-overlay.viewer').forEach(function (d) { d.remove(); });
+      });
 
+      /* Only counts as seen while the chat window is open (not minimized) and the tab is visible. */
       function seen() {
-        if (document.visibilityState === 'visible') SOC.markSeen(person.id).catch(function () {});
+        if (document.visibilityState === 'visible' && hooks.isOpen()) SOC.markSeen(person.id).catch(function () {});
       }
 
       /* "Sending…" / "Sent" / "Delivered" / "Seen 10:02 AM" under your newest message. */
@@ -1707,7 +1735,7 @@
           : status === 'delivered' ? 'Delivered to ' + first + ' · not seen yet'
           : status === 'sending' ? 'Sending…' : 'Not seen yet';
       }
-      state.onChatsChange = function () { seen(); updateReceipt(); };
+      api.refresh = function () { seen(); updateReceipt(); };
       /* Mark the chat seen when you come back to this tab. */
       function onVisible() {
         if (closed) { document.removeEventListener('visibilitychange', onVisible); return; }
@@ -2192,7 +2220,8 @@
           const file = event.clipboardData && Array.prototype.find.call(event.clipboardData.files || [], function (f) { return /^image\//.test(f.type); });
           if (file) { event.preventDefault(); pick(file); }
         });
-        setTimeout(function () { if (text.isConnected) text.focus({ preventScroll: true }); }, 0);
+        api.focus = function () { if (text.isConnected) text.focus({ preventScroll: true }); };
+        setTimeout(function () { if (hooks.isOpen()) api.focus(); }, 0);
         composerBox = h('div', { class: 'chat-compose-wrap' }, tray, form);
       } else {
         composerBox = h('p', { class: 'chat-locked small muted' },
@@ -2207,19 +2236,203 @@
       box.replaceChildren(
         h('div', { class: 'chat-main' },
           h('header', { class: 'chat-head' },
-            h('a', { class: 'icon-btn', href: '#messages', 'aria-label': 'Back to messages', title: 'Back to messages' }, icon('prev')),
-            h('a', { class: 'person-link', href: '#u/' + person.username },
-              avatar(person, person.avatar, 2.5),
-              h('span', { class: 'person-names' }, h('h1', { class: 'chat-name' }, person.name), h('span', { class: 'small muted' }, '@' + person.username))),
-            h('div', { class: 'chat-head-tools' }, searchToggle, mediaToggle)),
+            h('a', { class: 'person-link', href: '#u/' + person.username, title: 'View profile' },
+              avatar(person, person.avatar, 2),
+              h('span', { class: 'person-names' }, h('strong', { class: 'chat-name' }, person.name), h('span', { class: 'small muted' }, '@' + person.username))),
+            h('div', { class: 'chat-head-tools' }, searchToggle, mediaToggle, windowTools())),
           searchBar,
           thread,
           composerBox));
     }
 
     load();
-    return box;
+    return api;
   }
+
+  /* ---------- Floating chat (Facebook-style, bottom right, on every page) ---------- */
+
+  const dock = (function () {
+    const MAX_BUBBLES = 5;
+    const pop = h('section', { class: 'chat-pop', 'aria-label': 'Chat', hidden: true });
+    const bubbles = h('div', { class: 'chat-bubbles' });
+    const el = h('div', { class: 'chat-dock', hidden: true }, pop, bubbles);
+    document.body.appendChild(el);
+
+    let items = [];          /* [{ username, person }] — newest first */
+    let active = null;       /* username shown in the open window, or null when everything is minimized */
+    let panel = null;
+    let owner = null;        /* user id the dock belongs to */
+    let shown = false;
+    let knownAt = null;      /* chat id -> lastAt we have already reacted to */
+
+    function key() { return 'pbh.chatDock.' + owner; }
+    function save() {
+      try { localStorage.setItem(key(), JSON.stringify({ active: active, items: items.map(function (i) { return i.username; }) })); } catch (e) { /* storage off */ }
+    }
+    function restore() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(key()) || 'null');
+        if (saved && Array.isArray(saved.items)) {
+          items = saved.items.filter(function (u) { return /^[A-Za-z0-9_]{3,20}$/.test(u); }).slice(0, MAX_BUBBLES).map(function (u) { return { username: u, person: null }; });
+          active = items.some(function (i) { return i.username === saved.active; }) ? saved.active : null;
+        }
+      } catch (e) { items = []; active = null; }
+    }
+    function find(username) {
+      const lower = username.toLowerCase();
+      return items.find(function (i) { return i.username.toLowerCase() === lower; }) || null;
+    }
+
+    function isUnread(item) {
+      return !!item.person && SOC.isUnread(SOC.chatWith(item.person.id));
+    }
+
+    function drawBubbles() {
+      bubbles.replaceChildren.apply(bubbles, items.filter(function (i) { return i.username !== active; }).map(function (item) {
+        const unread = isUnread(item);
+        const name = item.person ? item.person.name : '@' + item.username;
+        return h('div', { class: 'chat-bubble-wrap' },
+          h('button', {
+            type: 'button', class: 'chat-bubble' + (unread ? ' unread' : ''),
+            'aria-label': 'Open chat with ' + name + (unread ? ' (new message)' : ''), title: name,
+            onclick: function () { open(item.username); }
+          }, item.person ? avatar(item.person, item.person.avatar, 3.25) : h('span', { class: 'avatar', style: '--size:3.25rem' }, '…'),
+          unread ? h('span', { class: 'chat-bubble-dot', 'aria-hidden': 'true' }) : null),
+          h('button', {
+            type: 'button', class: 'chat-bubble-x', 'aria-label': 'Close chat with ' + name, title: 'Close',
+            onclick: function () { close(item.username); }
+          }, icon('close')));
+      }));
+      el.classList.toggle('has-bubbles', items.length > (active ? 1 : 0));
+    }
+
+    function ensurePerson(item) {
+      if (item.person) return;
+      SOC.findByUsername(item.username).then(function (person) {
+        if (!person) { close(item.username); return; }
+        item.person = person;
+        item.username = person.username;
+        drawBubbles();
+      }).catch(function () {});
+    }
+
+    function mountPanel() {
+      if (panel) { panel.destroy(); panel = null; }
+      if (!active || !shown) { pop.hidden = true; pop.replaceChildren(); return; }
+      const item = find(active);
+      panel = chatPanel(item.username, {
+        isOpen: function () { return shown && active === item.username && !pop.hidden; },
+        minimize: function () { minimize(); },
+        close: function () { close(item.username); },
+        onPerson: function (person) { item.person = person; drawBubbles(); }
+      });
+      pop.replaceChildren(panel.el);
+      pop.hidden = false;
+    }
+
+    function draw() {
+      el.hidden = !shown || !items.length;
+      drawBubbles();
+      mountPanel();
+    }
+
+    /** Opens (or brings back) the chat window for a username. */
+    function open(username) {
+      let item = find(username);
+      if (!item) {
+        item = { username: username, person: null };
+        items.unshift(item);
+        if (items.length > MAX_BUBBLES) items = items.slice(0, MAX_BUBBLES);
+      }
+      if (active === item.username && panel) { panel.focus(); return; }
+      active = item.username;
+      save();
+      draw();
+    }
+
+    /** Shrinks the window into a circle at the bottom right. */
+    function minimize() {
+      active = null;
+      save();
+      draw();
+    }
+
+    function close(username) {
+      items = items.filter(function (i) { return i.username.toLowerCase() !== username.toLowerCase(); });
+      if (active && active.toLowerCase() === username.toLowerCase()) active = null;
+      save();
+      draw();
+    }
+
+    /** Called on every page render: the dock shows only on signed-in pages. */
+    function sync(visible) {
+      const user = BT.currentUser();
+      const id = visible && user ? user.id : null;
+      if (id !== owner) {
+        if (panel) { panel.destroy(); panel = null; }
+        owner = id;
+        items = []; active = null; knownAt = null;
+        if (owner) restore();
+        if (owner && SOC.chatsReady()) {
+          knownAt = {};
+          SOC.chats().forEach(function (c) { knownAt[c.id] = c.lastAt; });
+        }
+        items.forEach(ensurePerson);
+        shown = !!owner;
+        draw();
+        return;
+      }
+      if (shown !== !!id) { shown = !!id; draw(); }
+    }
+
+    /** Chats changed: refresh the red glow, receipts, and pop up a circle for new incoming messages. */
+    function onChats(list) {
+      if (!owner) return;
+      const me = BT.currentUser();
+      if (knownAt === null) {
+        if (!SOC.chatsReady()) return;
+        knownAt = {};
+        list.forEach(function (c) { knownAt[c.id] = c.lastAt; });
+      } else {
+        list.forEach(function (chat) {
+          const before = knownAt[chat.id] || 0;
+          knownAt[chat.id] = chat.lastAt;
+          if (chat.lastAt <= before || !me || chat.lastFrom === me.id || !SOC.isUnread(chat)) return;
+          SOC.getProfile(SOC.otherIn(chat)).then(function (person) {
+            if (!person || owner !== me.id) return;
+            let item = find(person.username);
+            if (!item) {
+              item = { username: person.username, person: person };
+              items.unshift(item);
+              if (items.length > MAX_BUBBLES) items = items.slice(0, MAX_BUBBLES);
+              save();
+              el.hidden = !shown;
+            }
+            item.person = item.person || person;
+            drawBubbles();
+            /* Give the circle a little bounce so it gets noticed. */
+            const btn = Array.prototype.find.call(bubbles.querySelectorAll('.chat-bubble'), function (b) { return b.title === person.name; });
+            if (btn) { btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop'); }
+          }).catch(function () {});
+        });
+      }
+      drawBubbles();
+      if (panel) panel.refresh();
+    }
+
+    return { open: open, minimize: minimize, close: close, sync: sync, onChats: onChats };
+  })();
+
+  /* Any "Message" link opens the floating chat instead of leaving the page. */
+  document.addEventListener('click', function (event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest && event.target.closest('a[href^="#chat/"]');
+    if (!link) return;
+    const username = link.getAttribute('href').slice(6);
+    if (!/^[A-Za-z0-9_]{3,20}$/.test(username) || !BT.currentUser()) return;
+    event.preventDefault();
+    dock.open(username);
+  });
 
   /* ---------- Notifications ---------- */
 
@@ -2589,7 +2802,7 @@
   SOC.onChats(function (list) {
     drawBadges();
     if (state.view === 'messages' && state.drawChats) state.drawChats(list);
-    if (state.view === 'chat' && state.onChatsChange) state.onChatsChange();
+    dock.onChats(list);
   });
   SOC.onNotifications(function (notes) {
     drawBadges();
