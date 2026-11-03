@@ -273,20 +273,43 @@
     const redirectError = BT.takeRedirectError();
     const signin = view === 'signin';
     return h('div', { class: 'auth-page' },
-      h('div', { class: 'auth-glow', 'aria-hidden': 'true' }, h('span'), h('span')),
-      h('div', { class: 'auth-main' },
-        h('span', { class: 'auth-wordmark' }, logoMark('auth-wordmark-mark'), 'PassbookHub'),
-        h('h1', { class: 'auth-title' }, signin ? 'Sign in to PassbookHub' : 'Create your PassbookHub account'),
-        notice ? h('p', { class: 'notice', role: 'status' }, notice) : null,
-        signin ? signInForm() : signUpForm(),
-        h('p', { class: 'or-divider' }, h('span', null, 'or')),
-        socialButtons(view, redirectError),
-        h('p', { class: 'auth-switch' }, signin
-          ? ['Don\u2019t have an account? ', h('a', { href: '#signup' }, 'Sign up')]
-          : ['Already have an account? ', h('a', { href: '#signin' }, 'Sign in')])),
-      h('footer', { class: 'auth-footer' },
-        h('span', null, '\u00a9 ' + new Date().getFullYear() + ' PassbookHub'),
-        h('span', null, 'Half for needs, some for wants, the rest for later.')));
+      authHero(signin),
+      h('div', { class: 'auth-panel' },
+        h('div', { class: 'auth-main' },
+          h('span', { class: 'auth-wordmark auth-wordmark-mobile' }, logoMark('auth-wordmark-mark'), 'PassbookHub'),
+          h('h1', { class: 'auth-title' }, signin ? 'Welcome back' : 'Join PassbookHub'),
+          notice ? h('p', { class: 'notice', role: 'status' }, notice) : null,
+          signin ? signInForm() : signUpForm(),
+          h('p', { class: 'auth-switch' }, signin
+            ? ['Don\u2019t have an account? ', h('a', { href: '#signup' }, 'Sign up')]
+            : ['Already have an account? ', h('a', { href: '#signin' }, 'Log in')]),
+          h('p', { class: 'or-divider' }, h('span', null, 'Or')),
+          socialButtons(view, redirectError)),
+        h('footer', { class: 'auth-footer' },
+          h('span', null, '\u00a9 ' + new Date().getFullYear() + ' PassbookHub'),
+          h('span', null, 'Half for needs, some for wants, the rest for later.'))));
+  }
+
+  /** The brand-red panel beside the form: headline plus three cards (signup steps, or the 50/30/20 split). */
+  function authHero(signin) {
+    const cards = signin
+      ? [['50%', 'Needs: rent, bills and groceries'], ['30%', 'Wants: the fun stuff, guilt-free'], ['20%', 'Savings: future you says thanks']]
+      : [['1', 'Create your account'], ['2', 'Verify your email'], ['3', 'Set up your profile']];
+    return h('aside', { class: 'auth-hero', 'aria-hidden': 'true' },
+      h('div', { class: 'auth-glow' }, h('span'), h('span')),
+      h('span', { class: 'auth-wordmark' }, logoMark('auth-wordmark-mark'), 'PassbookHub'),
+      h('div', { class: 'auth-hero-copy' },
+        h('span', { class: 'auth-pill' }, signin ? 'Good to see you again \u{1F44B}' : 'Budget the simple way \u2728'),
+        h('p', { class: 'auth-hero-title' }, signin ? 'Pick up where you left off' : 'Start your budget'),
+        h('p', { class: 'auth-hero-sub' }, signin
+          ? 'Your money, split by the 50/30/20 rule.'
+          : 'Follow these simple steps to set up your account.')),
+      h('ol', { class: 'auth-steps' + (signin ? ' split' : '') },
+        cards.map(function (card, i) {
+          return h('li', { class: i === 0 ? 'active' : null },
+            h('span', { class: 'auth-step-num' }, card[0]),
+            h('span', { class: 'auth-step-text' }, card[1]));
+        })));
   }
 
   /* The PassbookHub mark (the same three lines as the favicon). Markup is a constant. */
@@ -364,11 +387,11 @@
         });
       }
     },
-      field({ name: 'email', label: 'Email', type: 'email', wrapClass: 'quiet-label', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'Email' } }),
-      field({ name: 'password', label: 'Password', type: 'password', wrapClass: 'quiet-label', attrs: { autocomplete: 'current-password', placeholder: 'Password' } }),
+      field({ name: 'email', label: 'Email', type: 'email', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'you@example.com' } }),
+      field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'current-password', placeholder: 'Your password' } }),
+      h('p', { class: 'small auth-forgot' }, h('a', { href: '#forgot' }, 'Forgot password?')),
       formError(),
-      h('button', { class: 'btn primary full', type: 'submit' }, 'Sign in'),
-      h('p', { class: 'small auth-forgot' }, h('a', { href: '#forgot' }, 'Forgot password?')));
+      h('button', { class: 'btn primary full', type: 'submit' }, 'Continue'));
     return form;
   }
 
@@ -393,13 +416,14 @@
         });
       }
     },
-      field({ name: 'name', label: 'Name', hint: 'This becomes your profile name.', attrs: { autocomplete: 'name', maxlength: 60 } }),
+      field({ name: 'email', label: 'Email', type: 'email', hint: 'We use this to verify your account.', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'you@example.com' } }),
+      h('div', { class: 'field-row' },
+        field({ name: 'name', label: 'Full name', attrs: { autocomplete: 'name', maxlength: 60, placeholder: 'Juan Dela Cruz' } }),
+        field({ name: 'username', label: 'Username', attrs: { autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', maxlength: 20, placeholder: 'juandc' } })),
       field({ name: 'birthday', label: 'Birthday', type: 'date', hint: 'You must be ' + BT.MIN_AGE + ' or older.', attrs: { autocomplete: 'bday', max: BT.today() } }),
-      field({ name: 'username', label: 'Username', attrs: { autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', maxlength: 20 } }),
-      field({ name: 'password', label: 'Password', type: 'password', hint: 'At least 8 characters.', attrs: { autocomplete: 'new-password', maxlength: 128 } }),
-      field({ name: 'email', label: 'Email', type: 'email', hint: 'We use this to verify your account.', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false' } }),
+      field({ name: 'password', label: 'Password', type: 'password', hint: 'At least 8 characters.', attrs: { autocomplete: 'new-password', maxlength: 128, placeholder: 'Create a password' } }),
       formError(),
-      h('button', { class: 'btn primary full', type: 'submit' }, 'Create account'));
+      h('button', { class: 'btn primary full', type: 'submit' }, 'Continue'));
     return form;
   }
 
