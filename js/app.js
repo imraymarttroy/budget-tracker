@@ -1563,19 +1563,31 @@
         if (document.visibilityState === 'visible') SOC.markSeen(person.id).catch(function () {});
       }
 
-      /* "Sent" / "Seen 10:02 AM" under your newest message. */
+      /* "Sending…" / "Sent" / "Delivered" / "Seen 10:02 AM" under your newest message. */
       let receipt = null;
-      let receiptFor = 0;
+      let receiptMsg = null;
       function updateReceipt() {
-        if (!receipt) return;
+        if (!receipt || !receiptMsg) return;
+        const status = SOC.messageStatus(receiptMsg, person.id);
         const chat = SOC.chatWith(person.id);
         const theirSeen = chat && chat.seen ? chat.seen[person.id] || 0 : 0;
-        const isSeen = theirSeen >= receiptFor;
-        receipt.textContent = isSeen ? 'Seen ' + clockTime(theirSeen) : 'Sent';
+        const isSeen = status === 'seen';
+        const label = isSeen ? 'Seen ' + clockTime(theirSeen)
+          : status === 'delivered' ? 'Delivered' : status === 'sending' ? 'Sending…' : 'Sent';
+        receipt.replaceChildren.apply(receipt, isSeen ? [avatar(person, person.avatar, 0.875), label] : [label]);
         receipt.className = 'bubble-receipt small muted' + (isSeen ? ' seen' : '');
-        receipt.title = isSeen ? 'Seen by ' + first + ' · ' + dayLabel(theirSeen) + ', ' + clockTime(theirSeen) : 'Not seen yet';
+        receipt.dataset.status = status;
+        receipt.title = isSeen ? 'Seen by ' + first + ' · ' + dayLabel(theirSeen) + ', ' + clockTime(theirSeen)
+          : status === 'delivered' ? 'Delivered to ' + first + ' · not seen yet'
+          : status === 'sending' ? 'Sending…' : 'Not seen yet';
       }
       state.onChatsChange = function () { seen(); updateReceipt(); };
+      /* Mark the chat seen when you come back to this tab. */
+      function onVisible() {
+        if (closed) { document.removeEventListener('visibilitychange', onVisible); return; }
+        seen();
+      }
+      document.addEventListener('visibilitychange', onVisible);
 
       function redraw() { drawMessages(lastMessages); }
 
@@ -1821,14 +1833,14 @@
             const stamp = clockTime(m.createdAt) + (m.editedAt ? ' · Edited' : '');
             const hit = matches(m);
             nodes.push(h('div', {
-              class: 'bubble-row' + (mine ? ' mine' : '') + (hit ? ' hit' : '') + (hit && search.hits[search.index] === m.id ? ' current' : ''),
+              class: 'bubble-row' + (mine ? ' mine' : '') + (m.pending ? ' pending' : '') + (hit ? ' hit' : '') + (hit && search.hits[search.index] === m.id ? ' current' : ''),
               'data-id': m.id
             },
             mine && editing && editing.id === m.id ? editor(m) : bubbleLine(m, mine),
             lastOfRun || m.editedAt ? h('span', { class: 'bubble-time small muted' }, lastOfRun ? stamp : 'Edited') : null,
             m === newestMine ? (receipt = h('span', { class: 'bubble-receipt small muted', 'aria-live': 'polite' })) : null));
           });
-          receiptFor = newestMine ? newestMine.createdAt : 0;
+          receiptMsg = newestMine;
           thread.replaceChildren.apply(thread, nodes);
           updateReceipt();
         }

@@ -895,3 +895,7 @@ body.auth-body {
   .bubble { border: 1px solid CanvasText; }
   .unread-dot { background: Highlight; }
 }
+
+.bubble-row.pending .bubble { opacity: 0.6; }
+.bubble-receipt { display: inline-flex; align-items: center; gap: 0.25rem; }
+.bubble-receipt .avatar { font-size: 0.4rem !important; }
