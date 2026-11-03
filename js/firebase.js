@@ -28,7 +28,7 @@ try {
   await import('./banks.js?v=1');
   await import('./core.js?v=12');
   await import('./social.js?v=15');
-  await import('./app.js?v=27');
+  await import('./app.js?v=28');
 } catch (error) {
   console.error(error);
   fail('PassbookHub could not start. Check your internet connection and reload the page.');

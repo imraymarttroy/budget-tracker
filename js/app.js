@@ -1049,6 +1049,13 @@
     return holder.firstChild;
   }
 
+  /* Sidebar collapse icon (a panel with an arrow). Markup is a constant. */
+  function sideIcon() {
+    const holder = document.createElement('span');
+    holder.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><path d="M7.5 3.5v13"/><path class="side-arrow" d="m13 8-2 2 2 2"/></svg>';
+    return holder.firstChild;
+  }
+
   const badges = [];
 
   function drawBadges() {
@@ -1085,7 +1092,7 @@
           if (!p) return;
           const here = view === 'shared' && location.hash.slice(3).toLowerCase() === p.username.toLowerCase();
           ul.appendChild(h('li', null, h('a', { class: 'nav-item', href: '#d/' + p.username, 'aria-current': here ? 'page' : null, title: p.name + '\u2019s dashboard (shared with you)' },
-            avatar(p, p.avatar, 1.25), h('span', { class: 'nav-shared-name' }, p.name.split(' ')[0] + '\u2019s dashboard'))));
+            avatar(p, p.avatar, 1.25), h('span', { class: 'nav-shared-name nav-label' }, p.name.split(' ')[0] + '\u2019s dashboard'))));
         }).catch(function () {});
       });
     }
@@ -1098,7 +1105,7 @@
     const user = BT.currentUser();
     const current = view;
     function item(name, href, label, extra) {
-      return h('li', null, h('a', { class: 'nav-item', href: href, 'aria-current': current === name ? 'page' : null }, navIcon(name), h('span', null, label), extra || null));
+      return h('li', null, h('a', { class: 'nav-item', href: href, title: label, 'aria-current': current === name ? 'page' : null }, navIcon(name), h('span', { class: 'nav-label' }, label), extra || null));
     }
     function topLink(name, href, label) {
       const badge = name === 'notifications' ? h('span', { class: 'nav-badge', hidden: true, 'data-kind': 'notifications' }) : null;
@@ -1109,11 +1116,29 @@
     const top = h('div', { class: 'top-actions' },
       topLink('notifications', '#alerts', 'Alerts'),
       topLink('settings', '#settings', 'Settings'));
+    let collapsed = false;
+    try { collapsed = localStorage.getItem('pbh.sideCollapsed') === '1'; } catch (e) { /* storage off */ }
+    const collapseBtn = h('button', {
+      type: 'button', class: 'icon-btn side-toggle',
+      onclick: function () {
+        collapsed = !collapsed;
+        try { localStorage.setItem('pbh.sideCollapsed', collapsed ? '1' : '0'); } catch (e) { /* storage off */ }
+        applyCollapsed();
+      }
+    }, sideIcon());
+    function applyCollapsed() {
+      shellEl.classList.toggle('collapsed', collapsed);
+      collapseBtn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+      collapseBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
     const side = h('aside', { class: 'sidebar' },
-      h('a', { class: 'brand sidebar-brand', href: '#dashboard' }, 'PassbookHub'),
+      h('div', { class: 'sidebar-top' },
+        h('a', { class: 'brand sidebar-brand', href: '#dashboard', 'aria-label': 'PassbookHub' }, logoMark('sidebar-mark'), h('span', { class: 'sidebar-word' }, 'PassbookHub')),
+        collapseBtn),
       h('a', { class: 'sidebar-me', href: '#profile' },
         avatar(user, user.avatar, 2.25),
-        h('span', null, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username))),
+        h('span', { class: 'sidebar-me-text' }, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username))),
       h('nav', { 'aria-label': 'Main' },
         h('ul', { class: 'nav-list' },
           item('dashboard', '#dashboard', 'Dashboard',
@@ -1135,9 +1160,13 @@
               location.hash = '#signin';
               BT.signOut();
             }
-          }, navIcon('signout'), h('span', null, 'Sign out'))))));
+          }, navIcon('signout'), h('span', { class: 'nav-label' }, 'Sign out'))))));
     drawBadges();
-    return h('div', { class: 'app-shell' }, side, h('div', { class: 'app-main' }, top, content));
+    const shellEl = h('div', { class: 'app-shell' },
+      h('div', { class: 'bg-orbs', 'aria-hidden': 'true' }, h('span'), h('span')),
+      side, h('div', { class: 'app-main' }, top, content));
+    applyCollapsed();
+    return shellEl;
   }
 
   /* ---------- Profiles and posts ---------- */
@@ -1668,8 +1697,8 @@
       catch (e) { coverError.textContent = e.message; coverError.hidden = false; }
     } });
     function drawCover() {
-      coverBox.style.backgroundImage = cover ? 'url("' + cover + '")' : '';
-      coverBox.classList.toggle('empty', !cover);
+      if (cover) coverBox.style.setProperty('--cover', 'url("' + cover + '")'); else coverBox.style.removeProperty('--cover');
+      coverBox.classList.toggle('has-cover', !!cover);
       coverBox.replaceChildren(
         h('label', { class: 'btn small pf-cover-btn' }, pIcon('camera'), h('span', null, cover ? 'Change cover' : 'Add cover photo'), coverInput),
         cover ? h('button', { type: 'button', class: 'btn small pf-cover-btn', onclick: function () { cover = null; drawCover(); } }, 'Remove') : null);
