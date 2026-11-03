@@ -107,7 +107,7 @@ a { color: inherit; text-underline-offset: 2px; }
   padding: 1.25rem 1rem 4rem;
 }
 
-.brand { color: var(--brand); font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
+.brand { color: var(--accent); font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
 
 .intro { margin-bottom: 2rem; }
 .intro .brand { display: block; font-size: 1.5rem; margin-bottom: 0.25rem; }
