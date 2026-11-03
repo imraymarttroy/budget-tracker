@@ -39,6 +39,7 @@ window.BT = (function () {
   function userDoc(uid) { return F().doc(window.FB.db, 'users', uid); }
   function txCol(uid) { return F().collection(window.FB.db, 'users', uid, 'tx'); }
   function nameDoc(username) { return F().doc(window.FB.db, 'usernames', username.toLowerCase()); }
+  function emailDoc(email) { return F().doc(window.FB.db, 'emails', email.toLowerCase()); }
 
   /** Where Firebase's verification and reset emails send people back to. */
   function actionSettings() {
@@ -80,11 +81,36 @@ window.BT = (function () {
       const snap = await F().getDoc(userDoc(authUser.uid));
       if (!snap.exists()) return;
       cache.profile = Object.assign({}, snap.data(), { id: authUser.uid });
+      saveLoginLookups(authUser, cache.profile);
       const list = await F().getDocs(txCol(authUser.uid));
       cache.txs = list.docs.map(function (d) { return Object.assign({}, d.data(), { id: d.id }); });
     } catch (error) {
       console.error(error);
       cache.loadError = true;
+    }
+  }
+
+  /** Keeps the sign-in lookups up to date: emails/{email} says the email has an account, and
+      usernames/{name}.email lets someone with a password sign in with their username.
+      Runs on every sign-in so accounts made before these lookups existed get them too. */
+  async function saveLoginLookups(authUser, profile) {
+    const email = (authUser.email || '').toLowerCase();
+    if (!email) return;
+    try {
+      const writes = [];
+      const known = await F().getDoc(emailDoc(email));
+      if (!known.exists() || known.data().uid !== authUser.uid) {
+        writes.push(F().setDoc(emailDoc(email), { uid: authUser.uid }));
+      }
+      if (profile.username && hasPassword(authUser)) {
+        const name = await F().getDoc(nameDoc(profile.username));
+        if (name.exists() && name.data().uid === authUser.uid && name.data().email !== email) {
+          writes.push(F().setDoc(nameDoc(profile.username), { uid: authUser.uid, email: email }));
+        }
+      }
+      await Promise.all(writes);
+    } catch (error) {
+      console.error(error);
     }
   }
 
@@ -447,6 +473,10 @@ window.BT = (function () {
       }
       const batch = F().writeBatch(window.FB.db);
       if (cache.profile && cache.profile.username) batch.delete(nameDoc(cache.profile.username));
+      if (user.email) {
+        const known = await F().getDoc(emailDoc(user.email)).catch(function () { return null; });
+        if (known && known.exists() && known.data().uid === uid) batch.delete(emailDoc(user.email));
+      }
       batch.delete(userDoc(uid));
       await batch.commit();
       await user.delete();
@@ -455,13 +485,32 @@ window.BT = (function () {
     }
   }
 
-  /** Returns true when signed in. Wrong email or password returns false. */
-  async function signIn(email, password) {
+  /** Signs in with an email or a username. A wrong email or username throws a FieldError on
+      `email`; a wrong password throws one on `password`. */
+  async function signIn(login, password) {
+    login = (login || '').trim();
+    let email, known;
+    if (login.indexOf('@') > 0) {
+      email = login.toLowerCase();
+      if (!validEmail(email)) throw new FieldError({ email: 'Enter a valid email address.' });
+      const snap = await F().getDoc(emailDoc(email)).catch(function (e) { throw friendly(e); });
+      known = snap.exists();
+    } else {
+      const name = login.replace(/^@/, '');
+      if (!/^[A-Za-z0-9_]{3,20}$/.test(name)) throw new FieldError({ email: 'No account has that username.' });
+      const snap = await F().getDoc(nameDoc(name)).catch(function (e) { throw friendly(e); });
+      if (!snap.exists()) throw new FieldError({ email: 'No account has that username.' });
+      email = snap.data().email;
+      if (!email) throw new FieldError({ email: 'Sign in with your email this time. After that, your username works too.' });
+      known = true;
+    }
     try {
       await A().signInWithEmailAndPassword(window.FB.auth, email, password);
-      return true;
     } catch (error) {
-      if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email', 'auth/invalid-login-credentials'].indexOf(error.code) !== -1) return false;
+      if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email', 'auth/invalid-login-credentials'].indexOf(error.code) !== -1) {
+        if (!known) throw new FieldError({ email: 'No account uses that email.' });
+        throw new FieldError({ password: 'Incorrect password.' });
+      }
       throw friendly(error);
     }
   }

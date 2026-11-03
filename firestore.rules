@@ -215,6 +215,24 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['uid'])
         && request.resource.data.uid == request.auth.uid
         && name.matches('^[a-z0-9_]{3,20}$');
+      // The owner may add their sign-in email so they can sign in with the username.
+      allow update: if request.auth != null
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'email'])
+        && request.resource.data.uid == request.auth.uid
+        && request.auth.token.get('email', '') != ''
+        && request.resource.data.email == request.auth.token.email.lower();
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    // emails/{lowercase email}: lets sign-in say whether an email has an account.
+    match /emails/{email} {
+      allow get: if true;
+      allow create, update: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && request.auth.token.get('email', '') != ''
+        && email == request.auth.token.email.lower();
       allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
     }
   }
