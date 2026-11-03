@@ -325,7 +325,7 @@ window.BT = (function () {
     const code = (error && error.code) || '';
     if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || code === 'auth/user-cancelled') return null;
     const messages = {
-      'auth/account-exists-with-different-credential': 'That email already has a PassbookHub account. Sign in the way you did before (email and password, Google or Facebook).',
+      'auth/account-exists-with-different-credential': 'That email already has a PassbookHub account. Sign in the way you did before (email and password or Google).',
       'auth/operation-not-allowed': 'This sign-in option is not available yet. Use your email and password for now.',
       'auth/unauthorized-domain': 'This sign-in option is not available on this website yet. Use your email and password for now.',
       'auth/user-disabled': 'This account has been turned off.'
