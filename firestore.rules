@@ -136,6 +136,16 @@ service cloud.firestore {
           && request.resource.data.updatedAt is int;
       }
 
+      // note/current: a short note above the profile picture. Owner and circle only.
+      match /note/{docId} {
+        allow read: if signedInAs(uid) || (signedIn() && inCircle());
+        allow delete: if signedInAs(uid);
+        allow create, update: if signedInAs(uid) && verified() && docId == 'current'
+          && request.resource.data.keys().hasOnly(['text', 'at'])
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 60
+          && request.resource.data.at is int;
+      }
+
       function inCircle() {
         return exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid));
       }
