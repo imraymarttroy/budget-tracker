@@ -263,16 +263,44 @@ window.SOC = (function () {
     return null;
   }
 
-  async function sendMessage(uid, text) {
-    const body = text.trim();
-    const problem = validateMessage(body);
-    if (problem) throw new BT.UserError(problem);
+  /* Attachments live in Firestore itself (no Cloud Storage on the free plan):
+     the file is split into base64 chunks under chats/{id}/files/{fileId}_{n}. */
+  const FILE_MAX = 5 * 1024 * 1024;
+  const CHUNK = 900000;
+  const filesCol = function (id) { return F().collection(db(), 'chats', id, 'files'); };
+  const KIND_LABEL = { photo: 'Sent a photo', video: 'Sent a video', file: 'Sent a file' };
+
+  function previewFor(body, att) {
+    if (body) return body.slice(0, 140);
+    return att ? (KIND_LABEL[att.kind] + (att.kind === 'file' ? ': ' + att.name : '')).slice(0, 140) : '';
+  }
+
+  /** attachment: { kind, name, type, size, thumb, data } where data is a base64 string (no data: prefix). */
+  async function sendMessage(uid, text, attachment) {
+    const body = (text || '').trim();
+    if (!attachment) {
+      const problem = validateMessage(body);
+      if (problem) throw new BT.UserError(problem);
+    } else if (body.length > MESSAGE_MAX) {
+      throw new BT.UserError('Use ' + MESSAGE_MAX + ' characters or fewer.');
+    }
     const id = chatIdWith(uid);
     const now = Date.now();
     const existing = await run(function () { return F().getDoc(chatDoc(id)); });
-    const summary = { lastText: body.slice(0, 140), lastFrom: me(), lastAt: now };
     const batch = F().writeBatch(db());
-    batch.set(F().doc(messagesCol(id)), { from: me(), text: body, createdAt: now });
+    const message = { from: me(), text: body, createdAt: now };
+    if (attachment) {
+      if (attachment.size > FILE_MAX) throw new BT.UserError('Files can be up to 5 MB.');
+      const fileId = F().doc(filesCol(id)).id;
+      const parts = Math.max(1, Math.ceil(attachment.data.length / CHUNK));
+      for (let n = 0; n < parts; n++) {
+        batch.set(F().doc(filesCol(id), fileId + '_' + n), { from: me(), n: n, data: attachment.data.slice(n * CHUNK, (n + 1) * CHUNK) });
+      }
+      message.att = { kind: attachment.kind, name: attachment.name.slice(0, 200), type: attachment.type.slice(0, 100), size: attachment.size, fileId: fileId, parts: parts };
+      if (attachment.thumb) message.att.thumb = attachment.thumb;
+    }
+    batch.set(F().doc(messagesCol(id)), message);
+    const summary = { lastText: previewFor(body, message.att), lastFrom: me(), lastAt: now };
     if (existing.exists()) {
       const update = Object.assign({}, summary);
       update['seen.' + me()] = now;
@@ -283,6 +311,59 @@ window.SOC = (function () {
       batch.set(chatDoc(id), Object.assign({ members: id.split('_'), seen: seen }, summary));
     }
     await run(function () { return batch.commit(); });
+  }
+
+  /** Rebuilds an attachment as a Blob. Cached so the gallery and viewer do not re-download. */
+  const blobCache = {};
+  async function loadAttachment(uid, att) {
+    if (blobCache[att.fileId]) return blobCache[att.fileId];
+    const id = chatIdWith(uid);
+    const chunks = [];
+    for (let n = 0; n < att.parts; n++) {
+      const snap = await run(function () { return F().getDoc(F().doc(filesCol(id), att.fileId + '_' + n)); });
+      if (!snap.exists()) throw new BT.UserError('This attachment is no longer available.');
+      chunks.push(snap.data().data);
+    }
+    const binary = atob(chunks.join(''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: att.type || 'application/octet-stream' });
+    blobCache[att.fileId] = blob;
+    return blob;
+  }
+
+  /** Sets, changes or (with null) removes your reaction on a message. */
+  async function react(uid, messageId, emoji) {
+    const update = {};
+    update['reactions.' + me()] = emoji === null ? F().deleteField() : emoji;
+    await run(function () { return F().updateDoc(F().doc(messagesCol(chatIdWith(uid)), messageId), update); });
+  }
+
+  /** Keeps the conversation preview right when you change or remove the newest message. */
+  async function refreshPreview(id, createdAt, previewText) {
+    const chat = chatList.find(function (c) { return c.id === id; });
+    if (!chat || chat.lastFrom !== me() || chat.lastAt !== createdAt) return;
+    await run(function () { return F().updateDoc(chatDoc(id), { lastText: previewText.slice(0, 140) }); });
+  }
+
+  async function editMessage(uid, message, text) {
+    const body = text.trim();
+    const problem = validateMessage(body);
+    if (problem) throw new BT.UserError(problem);
+    const id = chatIdWith(uid);
+    await run(function () { return F().updateDoc(F().doc(messagesCol(id), message.id), { text: body, editedAt: Date.now() }); });
+    refreshPreview(id, message.createdAt, body).catch(function () {});
+  }
+
+  async function unsendMessage(uid, message) {
+    const id = chatIdWith(uid);
+    const batch = F().writeBatch(db());
+    batch.delete(F().doc(messagesCol(id), message.id));
+    if (message.att) {
+      for (let n = 0; n < message.att.parts; n++) batch.delete(F().doc(filesCol(id), message.att.fileId + '_' + n));
+    }
+    await run(function () { return batch.commit(); });
+    refreshPreview(id, message.createdAt, 'Unsent a message').catch(function () {});
   }
 
   /** Live list of the newest messages with someone, oldest first. Returns a function that stops listening. */
@@ -354,7 +435,8 @@ window.SOC = (function () {
     const chat = chatWith(uid);
     if (!isUnread(chat)) return;
     const update = {};
-    update['seen.' + me()] = chat.lastAt;
+    /* Seen keeps the real time (shown as "Seen 10:02 AM"), never earlier than the message itself. */
+    update['seen.' + me()] = Math.max(Date.now(), chat.lastAt);
     update['delivered.' + me()] = chat.lastAt;
     await run(function () { return F().updateDoc(chatDoc(chat.id), update); });
   }
@@ -380,6 +462,8 @@ window.SOC = (function () {
     for (const chat of myChats.docs) {
       const sent = await run(function () { return F().getDocs(F().query(messagesCol(chat.id), F().where('from', '==', uid))); });
       sent.docs.forEach(function (d) { refs.push(d.ref); });
+      const files = await run(function () { return F().getDocs(F().query(filesCol(chat.id), F().where('from', '==', uid))); });
+      files.docs.forEach(function (d) { refs.push(d.ref); });
       refs.push(chat.ref);
     }
     for (let i = 0; i < refs.length; i += 400) {
@@ -393,7 +477,7 @@ window.SOC = (function () {
 
   return {
     MESSAGE_MAX: MESSAGE_MAX, otherIn: otherIn, isUnread: isUnread, validateMessage: validateMessage,
-    sendMessage: sendMessage, watchMessages: watchMessages, watchChats: watchChats, stopWatchingChats: stopWatchingChats,
+    FILE_MAX: FILE_MAX, sendMessage: sendMessage, loadAttachment: loadAttachment, react: react, editMessage: editMessage, unsendMessage: unsendMessage, watchMessages: watchMessages, watchChats: watchChats, stopWatchingChats: stopWatchingChats,
     onChats: onChats, messageStatus: messageStatus, chats: chats, chatsReady: chatsReady, chatWith: chatWith, unreadChatCount: unreadChatCount, markSeen: markSeen,
     VISIBILITY: VISIBILITY, POST_MAX: POST_MAX,
     syncProfile: syncProfile, ensureProfile: ensureProfile, getProfile: getProfile, findByUsername: findByUsername, search: search,

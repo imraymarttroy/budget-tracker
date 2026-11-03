@@ -152,14 +152,58 @@ service cloud.firestore {
       allow delete: if isMember();
 
       match /messages/{messageId} {
+        // A photo, video or file sent with a message. The bytes live in files/{fileId}_{n}.
+        function validAttachment(att) {
+          return att is map
+            && att.keys().hasOnly(['kind', 'name', 'type', 'size', 'fileId', 'parts', 'thumb'])
+            && att.kind in ['photo', 'video', 'file']
+            && att.name is string && att.name.size() > 0 && att.name.size() <= 200
+            && att.type is string && att.type.size() <= 100
+            && att.size is int && att.size > 0 && att.size <= 5242880
+            && att.fileId is string && att.fileId.size() <= 40
+            && att.parts is int && att.parts > 0 && att.parts <= 8
+            && (!('thumb' in att) || (att.thumb is string && att.thumb.size() <= 60000));
+        }
+        // One reaction per person; you can only set or remove your own.
+        function validReactionChange() {
+          let before = resource.data.get('reactions', {});
+          let after = request.resource.data.reactions;
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+            && after is map
+            && after.diff(before).affectedKeys().hasOnly([request.auth.uid])
+            && (!(request.auth.uid in after) || (after[request.auth.uid] is string && after[request.auth.uid].size() <= 16));
+        }
+
         allow read: if isMember();
         allow create: if isMember() && verified() && circleWithOther()
           && existsAfter(/databases/$(database)/documents/chats/$(chatId))
-          && request.resource.data.keys().hasOnly(['from', 'text', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['from', 'text', 'createdAt', 'att'])
           && request.resource.data.from == request.auth.uid
           && request.resource.data.text is string
-          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000
+          && request.resource.data.text.size() <= 1000
+          && (request.resource.data.text.size() > 0 || 'att' in request.resource.data)
+          && (!('att' in request.resource.data) || validAttachment(request.resource.data.att))
           && request.resource.data.createdAt is int;
+        // The sender may edit the text of their own message (and must stamp editedAt).
+        allow update: if isMember() && (
+          (resource.data.from == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt'])
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000
+            && request.resource.data.editedAt is int)
+          || validReactionChange());
+        allow delete: if isMember() && resource.data.from == request.auth.uid;
+      }
+
+      // files/{fileId}_{n}: base64 chunks of an attachment, written with its message.
+      match /files/{chunkId} {
+        allow read: if isMember();
+        // Kept cheap (no document lookups) so a batch of up to 8 chunks stays within the rules lookup limit.
+        allow create: if isMember()
+          && request.resource.data.keys().hasOnly(['from', 'n', 'data'])
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.n is int && request.resource.data.n >= 0 && request.resource.data.n < 8
+          && request.resource.data.data is string && request.resource.data.data.size() <= 900000;
         allow delete: if isMember() && resource.data.from == request.auth.uid;
       }
     }

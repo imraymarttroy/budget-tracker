@@ -45,7 +45,19 @@
     remove: '<path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/>',
     check: '<circle cx="10" cy="10" r="7.5"/><path d="m6.5 10 2.5 2.5 4.5-5"/>',
     warning: '<path d="M10 3 18 17H2z"/><path d="M10 8.5v3.5M10 14.5v.01"/>',
-    over: '<circle cx="10" cy="10" r="7.5"/><path d="m7 7 6 6M13 7l-6 6"/>'
+    over: '<circle cx="10" cy="10" r="7.5"/><path d="m7 7 6 6M13 7l-6 6"/>',
+    close: '<path d="m5 5 10 10M15 5 5 15"/>',
+    search: '<circle cx="8.5" cy="8.5" r="5"/><path d="m12.5 12.5 4 4"/>',
+    up: '<path d="m5 12.5 5-5 5 5"/>',
+    down: '<path d="m5 7.5 5 5 5-5"/>',
+    smile: '<circle cx="10" cy="10" r="7.5"/><path d="M7 11.5a3.5 3.5 0 0 0 6 0M7.5 8h.01M12.5 8h.01"/>',
+    clip: '<path d="m15.5 9.5-5.8 5.8a3.5 3.5 0 0 1-5-5l6.4-6.4a2.3 2.3 0 0 1 3.3 3.3l-6.3 6.3a1.2 1.2 0 0 1-1.7-1.7l5.6-5.6"/>',
+    image: '<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="7.5" cy="8.5" r="1.3"/><path d="m3.5 14.5 4-4 3 3 2-2 4 4"/>',
+    video: '<rect x="2.5" y="5" width="11" height="10" rx="2"/><path d="m13.5 9 4-2.5v7l-4-2.5"/>',
+    file: '<path d="M11.5 2.5H6a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 6 17.5h8a1.5 1.5 0 0 0 1.5-1.5V6.5z"/><path d="M11.5 2.5v4h4"/>',
+    gallery: '<rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.2"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.2"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.2"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.2"/>',
+    play: '<path d="M7 5v10l8-5z" fill="currentColor"/>',
+    download: '<path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/>'
   };
 
   /* Icon markup comes only from the constant table above. */
@@ -1094,6 +1106,128 @@
       h('p', { class: 'post-text' }, post.text));
   }
 
+  /** In-page Yes/No question. Resolves true for yes, false for no, Escape or a click outside. */
+  function ask(options) {
+    return new Promise(function (resolve) {
+      const previous = document.activeElement;
+      const yes = h('button', { type: 'button', class: 'btn danger', onclick: function () { done(true); } }, options.yes || 'Yes');
+      const no = h('button', { type: 'button', class: 'btn', onclick: function () { done(false); } }, options.no || 'No');
+      const card = h('div', { class: 'ask-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'ask-title', 'aria-describedby': 'ask-body' },
+        h('h2', { id: 'ask-title' }, options.title),
+        options.body ? h('p', { id: 'ask-body', class: 'muted' }, options.body) : null,
+        h('div', { class: 'ask-actions' }, no, yes));
+      const overlay = h('div', { class: 'chat-overlay ask' }, card);
+      function onKey(event) {
+        if (event.key === 'Escape') done(false);
+        if (event.key === 'Tab') { event.preventDefault(); (document.activeElement === no ? yes : no).focus(); }
+      }
+      function done(answer) {
+        document.removeEventListener('keydown', onKey, true);
+        overlay.remove();
+        if (previous && previous.isConnected) previous.focus();
+        resolve(answer);
+      }
+      overlay.addEventListener('click', function (event) { if (event.target === overlay) done(false); });
+      document.addEventListener('keydown', onKey, true);
+      document.body.appendChild(overlay);
+      no.focus();
+    });
+  }
+
+  function fileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  }
+
+  function readBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
+      reader.onerror = function () { reject(new BT.UserError('We could not read that file.')); };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function loadImage(url) {
+    return new Promise(function (resolve, reject) {
+      const img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new BT.UserError('We could not open that image.')); };
+      img.src = url;
+    });
+  }
+
+  /** Draws a picture (image or video frame) scaled to fit max px, as a JPEG blob or data URL. */
+  function shrink(source, width, height, max, quality, asDataUrl) {
+    const scale = Math.min(1, max / Math.max(width, height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    if (asDataUrl) return Promise.resolve(canvas.toDataURL('image/jpeg', quality));
+    return new Promise(function (resolve) { canvas.toBlob(resolve, 'image/jpeg', quality); });
+  }
+
+  async function thumbFrom(source, width, height) {
+    let thumb = await shrink(source, width, height, 360, 0.6, true);
+    if (thumb.length > 60000) thumb = await shrink(source, width, height, 240, 0.5, true);
+    return thumb.length <= 60000 ? thumb : null;
+  }
+
+  function videoFrame(url) {
+    return new Promise(function (resolve) {
+      const video = document.createElement('video');
+      const give = function (value) { clearTimeout(timer); video.removeAttribute('src'); video.load(); resolve(value); };
+      const timer = setTimeout(function () { give(null); }, 5000);
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.onloadeddata = function () { video.currentTime = Math.min(0.5, (video.duration || 1) / 2); };
+      video.onseeked = function () {
+        thumbFrom(video, video.videoWidth, video.videoHeight).then(give, function () { give(null); });
+      };
+      video.onerror = function () { give(null); };
+      video.src = url;
+    });
+  }
+
+  /** Turns a picked File into what SOC.sendMessage stores. Photos are resized; the rest must fit in 5 MB. */
+  async function prepareAttachment(file) {
+    const type = file.type || '';
+    const isImage = /^image\//.test(type);
+    const isVideo = /^video\//.test(type);
+    const url = URL.createObjectURL(file);
+    try {
+      if (isImage && type !== 'image/gif' && type !== 'image/svg+xml') {
+        const img = await loadImage(url);
+        let blob = null;
+        for (const [max, quality] of [[2048, 0.85], [1600, 0.8], [1280, 0.75], [1024, 0.7]]) {
+          blob = await shrink(img, img.naturalWidth, img.naturalHeight, max, quality, false);
+          if (blob && blob.size <= 1.2 * 1024 * 1024) break;
+        }
+        if (!blob) throw new BT.UserError('We could not prepare that photo.');
+        const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+        return { kind: 'photo', name: name, type: 'image/jpeg', size: blob.size, thumb: await thumbFrom(img, img.naturalWidth, img.naturalHeight), data: await readBase64(blob) };
+      }
+      if (file.size > SOC.FILE_MAX) {
+        throw new BT.UserError((isVideo ? 'Videos' : isImage ? 'GIFs' : 'Files') + ' can be up to 5 MB. This one is ' + fileSize(file.size) + '.');
+      }
+      let thumb = null;
+      if (isImage) {
+        try { const img = await loadImage(url); thumb = await thumbFrom(img, img.naturalWidth || 360, img.naturalHeight || 360); } catch (e) { thumb = null; }
+      } else if (isVideo) {
+        thumb = await videoFrame(url);
+      }
+      return { kind: isImage ? 'photo' : isVideo ? 'video' : 'file', name: file.name || 'file', type: type || 'application/octet-stream', size: file.size, thumb: thumb, data: await readBase64(file) };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
   /** First click arms the button, second click within 4 seconds confirms. Avoids blocking dialogs. */
   function confirmTwice(button) {
     if (button.dataset.armed === '1') return true;
@@ -1408,28 +1542,272 @@
     function draw(person, canSend) {
       const me = BT.currentUser();
       const first = person.name.split(' ')[0];
+      const REACTIONS = ['❤️', '😆', '😮', '😢', '😠', '👍'];
       const thread = h('div', { class: 'chat-thread', role: 'log', 'aria-label': 'Conversation with ' + person.name },
         h('p', { class: 'muted small chat-hint' }, 'Loading messages…'));
       let firstDraw = true;
+      let editing = null;
+      let picking = null;
+      let lastMessages = [];
+      const search = { open: false, query: '', hits: [], index: -1 };
+      const urls = {};
 
-      let latest = [];
+      const parentCleanup = state.cleanup;
+      state.cleanup = function () {
+        parentCleanup();
+        Object.keys(urls).forEach(function (k) { URL.revokeObjectURL(urls[k]); });
+        document.querySelectorAll('.chat-overlay').forEach(function (d) { d.remove(); });
+      };
+
       function seen() {
         if (document.visibilityState === 'visible') SOC.markSeen(person.id).catch(function () {});
       }
-      /* Seen and delivered live on the conversation, so redraw when it changes. */
-      state.onChatsChange = function () { if (latest.length) drawMessages(latest); else seen(); };
+
+      /* "Sending…" / "Sent" / "Delivered" / "Seen 10:02 AM" under your newest message. */
+      let receipt = null;
+      let receiptMsg = null;
+      function updateReceipt() {
+        if (!receipt || !receiptMsg) return;
+        const status = SOC.messageStatus(receiptMsg, person.id);
+        const chat = SOC.chatWith(person.id);
+        const theirSeen = chat && chat.seen ? chat.seen[person.id] || 0 : 0;
+        const isSeen = status === 'seen';
+        const label = isSeen ? 'Seen ' + clockTime(theirSeen)
+          : status === 'delivered' ? 'Delivered' : status === 'sending' ? 'Sending…' : 'Sent';
+        receipt.replaceChildren.apply(receipt, isSeen ? [avatar(person, person.avatar, 0.875), label] : [label]);
+        receipt.className = 'bubble-receipt small muted' + (isSeen ? ' seen' : '');
+        receipt.dataset.status = status;
+        receipt.title = isSeen ? 'Seen by ' + first + ' · ' + dayLabel(theirSeen) + ', ' + clockTime(theirSeen)
+          : status === 'delivered' ? 'Delivered to ' + first + ' · not seen yet'
+          : status === 'sending' ? 'Sending…' : 'Not seen yet';
+      }
+      state.onChatsChange = function () { seen(); updateReceipt(); };
+      /* Mark the chat seen when you come back to this tab. */
       function onVisible() {
         if (closed) { document.removeEventListener('visibilitychange', onVisible); return; }
         seen();
       }
       document.addEventListener('visibilitychange', onVisible);
 
-      const STATUS = { sending: 'Sending…', sent: 'Sent', delivered: 'Delivered', seen: 'Seen' };
+      function redraw() { drawMessages(lastMessages); }
+
+      /* ---------- Attachments ---------- */
+
+      async function mediaUrl(att) {
+        if (urls[att.fileId]) return urls[att.fileId];
+        const blob = await SOC.loadAttachment(person.id, att);
+        urls[att.fileId] = URL.createObjectURL(blob);
+        return urls[att.fileId];
+      }
+
+      async function download(att) {
+        try {
+          const url = await mediaUrl(att);
+          const a = h('a', { href: url, download: att.name });
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } catch (error) {
+          toast(error.message || 'We could not download that file.');
+        }
+      }
+
+      function openViewer(m) {
+        const att = m.att;
+        const stage = h('div', { class: 'viewer-stage' }, h('p', { class: 'muted' }, 'Loading…'));
+        const overlay = h('div', { class: 'chat-overlay viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': att.name },
+          h('div', { class: 'viewer-bar' },
+            h('span', { class: 'viewer-name' }, h('strong', null, att.name), h('span', { class: 'small muted' }, (m.from === me.id ? 'You' : first) + ' · ' + dayLabel(m.createdAt) + ', ' + clockTime(m.createdAt))),
+            h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Download', title: 'Download', onclick: function () { download(att); } }, icon('download')),
+            h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', title: 'Close', onclick: close }, icon('close'))),
+          stage);
+        function close() { overlay.remove(); document.removeEventListener('keydown', onKey); }
+        function onKey(event) { if (event.key === 'Escape') close(); }
+        overlay.addEventListener('click', function (event) { if (event.target === overlay || event.target === stage) close(); });
+        document.addEventListener('keydown', onKey);
+        document.body.appendChild(overlay);
+        overlay.querySelector('.icon-btn:last-child').focus();
+        mediaUrl(att).then(function (url) {
+          if (!overlay.isConnected) return;
+          stage.replaceChildren(att.kind === 'video'
+            ? h('video', { src: url, controls: true, autoplay: true, playsinline: true })
+            : h('img', { src: url, alt: att.name }));
+        }).catch(function (error) {
+          stage.replaceChildren(h('p', { class: 'muted' }, error.message || 'We could not open this attachment.'));
+        });
+      }
+
+      function attachmentNode(m) {
+        const att = m.att;
+        if (att.kind === 'photo' || att.kind === 'video') {
+          return h('button', {
+            type: 'button', class: 'att-media' + (att.kind === 'video' ? ' is-video' : ''),
+            'aria-label': (att.kind === 'video' ? 'Play video ' : 'Open photo ') + att.name,
+            onclick: function (event) { event.stopPropagation(); openViewer(m); }
+          },
+          att.thumb ? h('img', { src: att.thumb, alt: '', loading: 'lazy' }) : h('span', { class: 'att-placeholder' }, icon(att.kind === 'video' ? 'video' : 'image')),
+          att.kind === 'video' ? h('span', { class: 'att-play' }, icon('play')) : null);
+        }
+        return h('button', {
+          type: 'button', class: 'att-file', title: 'Download ' + att.name,
+          onclick: function (event) { event.stopPropagation(); download(att); }
+        }, h('span', { class: 'att-file-icon' }, icon('file')),
+        h('span', { class: 'att-file-text' }, h('strong', null, highlight(att.name)), h('span', { class: 'small' }, fileSize(att.size))));
+      }
+
+      /* ---------- Search ---------- */
+
+      function matches(m) {
+        if (!search.query) return false;
+        const q = search.query.toLowerCase();
+        return (m.text || '').toLowerCase().indexOf(q) !== -1 || (!!m.att && m.att.name.toLowerCase().indexOf(q) !== -1);
+      }
+
+      function highlight(text) {
+        if (!search.query || !text) return text;
+        const q = search.query.toLowerCase();
+        const lower = text.toLowerCase();
+        const parts = [];
+        let at = 0;
+        let found = lower.indexOf(q);
+        while (found !== -1) {
+          parts.push(text.slice(at, found), h('mark', null, text.slice(found, found + q.length)));
+          at = found + q.length;
+          found = lower.indexOf(q, at);
+        }
+        parts.push(text.slice(at));
+        return parts;
+      }
+
+      /* ---------- Bubbles ---------- */
+
+      function reactionsNode(m) {
+        const all = m.reactions || {};
+        const people = Object.keys(all);
+        if (!people.length) return null;
+        const emojis = [];
+        people.forEach(function (uid) { if (emojis.indexOf(all[uid]) === -1) emojis.push(all[uid]); });
+        const names = people.map(function (uid) { return (uid === me.id ? 'You' : first) + ' ' + all[uid]; }).join(', ');
+        const mineToo = !!all[me.id];
+        return h('button', {
+          type: 'button', class: 'reactions' + (mineToo ? ' mine' : ''), title: names + (mineToo ? ' · Click to remove yours' : ''),
+          'aria-label': 'Reactions: ' + names + (mineToo ? '. Click to remove your reaction.' : ''),
+          onclick: function (event) {
+            event.stopPropagation();
+            if (mineToo) SOC.react(person.id, m.id, null).catch(function (error) { toast(error.message); });
+          }
+        }, emojis.join(''), people.length > 1 ? h('span', { class: 'num' }, String(people.length)) : null);
+      }
+
+      function picker(m) {
+        const current = (m.reactions || {})[me.id];
+        return h('div', { class: 'react-picker', role: 'group', 'aria-label': 'React to message' },
+          REACTIONS.map(function (emoji) {
+            return h('button', {
+              type: 'button', class: emoji === current ? 'picked' : null, 'aria-label': 'React ' + emoji, 'aria-pressed': emoji === current ? 'true' : 'false',
+              onclick: function (event) {
+                event.stopPropagation();
+                picking = null;
+                redraw();
+                SOC.react(person.id, m.id, emoji === current ? null : emoji).catch(function (error) { toast(error.message); });
+              }
+            }, emoji);
+          }));
+      }
+
+      function bubbleLine(m, mine) {
+        const content = h('div', { class: 'bubble-stack' },
+          m.att ? attachmentNode(m) : null,
+          m.text ? h('p', { class: 'bubble', title: clockTime(m.createdAt) + (m.editedAt ? ' · Edited ' + clockTime(m.editedAt) : '') }, highlight(m.text)) : null,
+          reactionsNode(m));
+        const line = h('div', { class: 'bubble-line' + (picking === m.id ? ' open' : '') });
+        const reactBtn = h('button', {
+          type: 'button', class: 'icon-btn bubble-tool', 'aria-label': 'React', title: 'React', 'aria-expanded': picking === m.id ? 'true' : 'false',
+          onclick: function (event) { event.stopPropagation(); picking = picking === m.id ? null : m.id; redraw(); }
+        }, icon('smile'));
+        const tools = [reactBtn];
+        if (mine) {
+          tools.unshift(
+            h('button', {
+              type: 'button', class: 'icon-btn bubble-tool', 'aria-label': 'Unsend message', title: 'Unsend',
+              onclick: async function (event) {
+                event.stopPropagation();
+                const ok = await ask({
+                  title: 'Unsend message?',
+                  body: 'This removes the message for you and ' + first + '. You can’t undo this.',
+                  yes: 'Yes, unsend', no: 'No'
+                });
+                if (!ok) return;
+                try {
+                  await SOC.unsendMessage(person.id, m);
+                  toast('Message unsent.');
+                } catch (error) {
+                  toast(error.message || 'We could not unsend that message.');
+                }
+              }
+            }, icon('remove')),
+            h('button', {
+              type: 'button', class: 'icon-btn bubble-tool', 'aria-label': 'Edit message', title: 'Edit',
+              onclick: function (event) { event.stopPropagation(); editing = { id: m.id, draft: m.text || '' }; picking = null; redraw(); }
+            }, icon('edit')));
+        }
+        content.addEventListener('click', function () {
+          thread.querySelectorAll('.bubble-line.open').forEach(function (l) { if (l !== line) l.classList.remove('open'); });
+          line.classList.toggle('open');
+        });
+        if (mine) line.append.apply(line, tools.concat([content]));
+        else line.append.apply(line, [content].concat(tools));
+        if (picking === m.id) line.appendChild(picker(m));
+        return line;
+      }
+
+      function editor(m) {
+        const input = h('textarea', { class: 'bubble-input', rows: 1, maxlength: SOC.MESSAGE_MAX, 'aria-label': 'Edit message', placeholder: m.att ? 'Add a caption…' : '' });
+        input.value = editing.draft;
+        const grow = function () { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight + 2, 160) + 'px'; };
+        const save = h('button', { type: 'submit', class: 'btn primary small' }, 'Save');
+        const cancel = function () { editing = null; redraw(); };
+        input.addEventListener('input', function () { editing.draft = input.value; grow(); });
+        input.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') { event.preventDefault(); cancel(); }
+          if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+        });
+        const form = h('form', {
+          class: 'bubble-edit', novalidate: true,
+          onsubmit: async function (event) {
+            event.preventDefault();
+            const body = input.value;
+            if (body.trim() === (m.text || '')) { cancel(); return; }
+            const problem = SOC.validateMessage(body);
+            if (problem) { toast(problem); return; }
+            save.disabled = true;
+            try {
+              await SOC.editMessage(person.id, m, body);
+              editing = null;
+              redraw();
+            } catch (error) {
+              save.disabled = false;
+              toast(error.message || 'We could not edit that message.');
+            }
+          }
+        }, input, h('div', { class: 'bubble-edit-actions' },
+          h('button', { type: 'button', class: 'btn small', onclick: cancel }, 'Cancel'), save));
+        setTimeout(function () {
+          if (!input.isConnected) return;
+          grow();
+          input.focus({ preventScroll: true });
+          input.setSelectionRange(input.value.length, input.value.length);
+        }, 0);
+        return form;
+      }
 
       function drawMessages(messages) {
         if (closed) return;
-        latest = messages;
+        lastMessages = messages;
+        if (editing && !messages.some(function (m) { return m.id === editing.id; })) editing = null;
         const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+        const keepScroll = thread.scrollTop;
+        receipt = null;
         if (!messages.length) {
           thread.replaceChildren(h('div', { class: 'chat-hint' },
             avatar(person, person.avatar, 4),
@@ -1440,85 +1818,277 @@
         } else {
           const nodes = [];
           let lastDay = null;
-          messages.forEach(function (m) {
+          let newestMine = null;
+          messages.forEach(function (m) { if (m.from === me.id) newestMine = m; });
+          messages.forEach(function (m, i) {
             const day = new Date(m.createdAt).toDateString();
             if (day !== lastDay) {
               nodes.push(h('p', { class: 'chat-day small muted' }, dayLabel(m.createdAt)));
               lastDay = day;
             }
             const mine = m.from === me.id;
-            const next = messages[messages.indexOf(m) + 1];
+            const next = messages[i + 1];
             const lastOfRun = !next || next.from !== m.from || next.createdAt - m.createdAt > 5 * 60 * 1000 ||
               new Date(next.createdAt).toDateString() !== day;
-            /* Status goes under your newest message while it is the last thing in the conversation. */
-            const status = mine && !next ? SOC.messageStatus(m, person.id) : null;
-            nodes.push(h('div', { class: 'bubble-row' + (mine ? ' mine' : '') + (m.pending ? ' pending' : '') },
-              h('p', { class: 'bubble', title: clockTime(m.createdAt) }, m.text),
-              lastOfRun || status ? h('span', { class: 'bubble-time small muted' },
-                lastOfRun ? clockTime(m.createdAt) : null,
-                lastOfRun && status ? ' · ' : null,
-                status ? h('span', { class: 'msg-status', 'data-status': status }, status === 'seen' ? avatar(person, person.avatar, 0.875) : null, STATUS[status]) : null) : null));
+            const stamp = clockTime(m.createdAt) + (m.editedAt ? ' · Edited' : '');
+            const hit = matches(m);
+            nodes.push(h('div', {
+              class: 'bubble-row' + (mine ? ' mine' : '') + (m.pending ? ' pending' : '') + (hit ? ' hit' : '') + (hit && search.hits[search.index] === m.id ? ' current' : ''),
+              'data-id': m.id
+            },
+            mine && editing && editing.id === m.id ? editor(m) : bubbleLine(m, mine),
+            lastOfRun || m.editedAt ? h('span', { class: 'bubble-time small muted' }, lastOfRun ? stamp : 'Edited') : null,
+            m === newestMine ? (receipt = h('span', { class: 'bubble-receipt small muted', 'aria-live': 'polite' })) : null));
           });
+          receiptMsg = newestMine;
           thread.replaceChildren.apply(thread, nodes);
+          updateReceipt();
         }
-        if (firstDraw || nearBottom) thread.scrollTop = thread.scrollHeight;
+        if (search.open && search.query) refreshHits(false);
+        if (firstDraw || (nearBottom && !search.query)) thread.scrollTop = thread.scrollHeight;
+        else thread.scrollTop = keepScroll;
         firstDraw = false;
+        if (mediaPanel.isConnected) fillMedia();
         seen();
       }
 
-      stop = SOC.watchMessages(person.id, drawMessages, function (error) {
-        if (!closed) thread.replaceChildren(h('p', { class: 'empty' }, error.message));
+      document.addEventListener('click', function closePicker(event) {
+        if (closed) { document.removeEventListener('click', closePicker); return; }
+        if (picking && !event.target.closest('.react-picker')) { picking = null; redraw(); }
       });
+
+      /* ---------- Search bar ---------- */
+
+      const searchInput = h('input', { type: 'search', class: 'chat-search-input', placeholder: 'Search this chat', 'aria-label': 'Search this chat', autocomplete: 'off' });
+      const searchCount = h('span', { class: 'small muted num chat-search-count', 'aria-live': 'polite' });
+      const olderBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Older result', title: 'Older', onclick: function () { step(-1); } }, icon('up'));
+      const newerBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Newer result', title: 'Newer', onclick: function () { step(1); } }, icon('down'));
+      const searchBar = h('div', { class: 'chat-search', hidden: true },
+        icon('search'), searchInput, searchCount, olderBtn, newerBtn,
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close search', title: 'Close search', onclick: function () { toggleSearch(false); } }, icon('close')));
+
+      function refreshHits(jump) {
+        const before = search.hits[search.index];
+        search.hits = lastMessages.filter(matches).map(function (m) { return m.id; });
+        if (jump || search.hits.indexOf(before) === -1) search.index = search.hits.length - 1;
+        else search.index = search.hits.indexOf(before);
+        searchCount.textContent = !search.query ? '' : search.hits.length ? (search.index + 1) + ' of ' + search.hits.length : 'No results';
+        olderBtn.disabled = search.index <= 0;
+        newerBtn.disabled = search.index < 0 || search.index >= search.hits.length - 1;
+      }
+      function focusHit() {
+        thread.querySelectorAll('.bubble-row.current').forEach(function (r) { r.classList.remove('current'); });
+        const id = search.hits[search.index];
+        const row = id && thread.querySelector('[data-id="' + id + '"]');
+        if (row) { row.classList.add('current'); row.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      }
+      function step(dir) {
+        if (!search.hits.length) return;
+        search.index = Math.max(0, Math.min(search.hits.length - 1, search.index + dir));
+        searchCount.textContent = (search.index + 1) + ' of ' + search.hits.length;
+        olderBtn.disabled = search.index <= 0;
+        newerBtn.disabled = search.index >= search.hits.length - 1;
+        focusHit();
+      }
+      let searchTimer = null;
+      searchInput.addEventListener('input', function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () {
+          search.query = searchInput.value.trim();
+          refreshHits(true);
+          redraw();
+          focusHit();
+        }, 150);
+      });
+      searchInput.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') { event.preventDefault(); step(event.shiftKey ? 1 : -1); }
+        if (event.key === 'Escape') { event.preventDefault(); toggleSearch(false); }
+      });
+      function toggleSearch(open) {
+        search.open = open;
+        searchBar.hidden = !open;
+        searchToggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+        if (open) { searchInput.focus(); return; }
+        searchInput.value = '';
+        search.query = '';
+        search.hits = [];
+        search.index = -1;
+        searchCount.textContent = '';
+        redraw();
+      }
+      const searchToggle = h('button', {
+        type: 'button', class: 'icon-btn', 'aria-label': 'Search this chat', title: 'Search this chat', 'aria-pressed': 'false',
+        onclick: function () { toggleSearch(!search.open); }
+      }, icon('search'));
+
+      /* ---------- Photos, videos and files panel ---------- */
+
+      let mediaTab = 'photo';
+      const mediaBody = h('div', { class: 'media-body' });
+      const mediaTabs = h('div', { class: 'media-tabs', role: 'tablist', 'aria-label': 'Shared in this chat' });
+      const mediaPanel = h('aside', { class: 'media-panel', 'aria-label': 'Photos, videos and files' },
+        h('div', { class: 'media-head' },
+          h('h2', null, 'Shared in this chat'),
+          h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', title: 'Close', onclick: function () { toggleMedia(false); } }, icon('close'))),
+        mediaTabs, mediaBody);
+
+      function fillMedia() {
+        const TABS = [['photo', 'Photos'], ['video', 'Videos'], ['file', 'Files']];
+        const all = lastMessages.filter(function (m) { return m.att; }).reverse();
+        mediaTabs.replaceChildren.apply(mediaTabs, TABS.map(function (t) {
+          const count = all.filter(function (m) { return m.att.kind === t[0]; }).length;
+          return h('button', {
+            type: 'button', role: 'tab', class: 'media-tab' + (mediaTab === t[0] ? ' active' : ''), 'aria-selected': mediaTab === t[0] ? 'true' : 'false',
+            onclick: function () { mediaTab = t[0]; fillMedia(); }
+          }, t[1], h('span', { class: 'num small muted' }, String(count)));
+        }));
+        const items = all.filter(function (m) { return m.att.kind === mediaTab; });
+        if (!items.length) {
+          mediaBody.replaceChildren(h('p', { class: 'muted small media-empty' },
+            mediaTab === 'photo' ? 'No photos yet.' : mediaTab === 'video' ? 'No videos yet.' : 'No files yet.'));
+          return;
+        }
+        if (mediaTab === 'file') {
+          mediaBody.replaceChildren(h('ul', { class: 'media-files' }, items.map(function (m) {
+            return h('li', null, h('button', { type: 'button', class: 'att-file', onclick: function () { download(m.att); } },
+              h('span', { class: 'att-file-icon' }, icon('file')),
+              h('span', { class: 'att-file-text' }, h('strong', null, m.att.name),
+                h('span', { class: 'small muted' }, fileSize(m.att.size) + ' · ' + (m.from === me.id ? 'You' : first) + ' · ' + dayLabel(m.createdAt))),
+              h('span', { class: 'att-file-get' }, icon('download'))));
+          })));
+          return;
+        }
+        mediaBody.replaceChildren(h('div', { class: 'media-grid' }, items.map(function (m) {
+          return h('button', {
+            type: 'button', class: 'media-cell' + (m.att.kind === 'video' ? ' is-video' : ''),
+            'aria-label': (m.att.kind === 'video' ? 'Play ' : 'Open ') + m.att.name + ', ' + dayLabel(m.createdAt),
+            onclick: function () { openViewer(m); }
+          },
+          m.att.thumb ? h('img', { src: m.att.thumb, alt: '', loading: 'lazy' }) : h('span', { class: 'att-placeholder' }, icon(m.att.kind === 'video' ? 'video' : 'image')),
+          m.att.kind === 'video' ? h('span', { class: 'att-play' }, icon('play')) : null);
+        })));
+      }
+      function toggleMedia(open) {
+        mediaToggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+        if (open) { box.classList.add('with-media'); box.appendChild(mediaPanel); fillMedia(); mediaPanel.querySelector('.media-tab.active').focus(); }
+        else { box.classList.remove('with-media'); mediaPanel.remove(); }
+      }
+      const mediaToggle = h('button', {
+        type: 'button', class: 'icon-btn', 'aria-label': 'Photos, videos and files', title: 'Photos, videos and files', 'aria-pressed': 'false',
+        onclick: function () { toggleMedia(!mediaPanel.isConnected); }
+      }, icon('gallery'));
+
+      /* ---------- Composer ---------- */
 
       let composerBox;
       if (canSend) {
+        let pending = null;
         const text = h('textarea', { id: 'f-message', name: 'message', rows: 1, maxlength: SOC.MESSAGE_MAX, placeholder: 'Message ' + first + '…', autocomplete: 'off' });
         const send = h('button', { class: 'btn primary', type: 'submit' }, 'Send');
         const grow = function () { text.style.height = 'auto'; text.style.height = Math.min(text.scrollHeight + 2, 160) + 'px'; };
         text.addEventListener('input', grow);
+        const tray = h('div', { class: 'attach-tray', hidden: true });
+        const mediaInput = h('input', { type: 'file', accept: 'image/*,video/*', hidden: true });
+        const fileInput = h('input', { type: 'file', hidden: true });
+        const attachMenu = h('div', { class: 'attach-menu', hidden: true, role: 'menu' },
+          h('button', { type: 'button', role: 'menuitem', onclick: function () { attachMenu.hidden = true; mediaInput.click(); } }, icon('image'), 'Photo or video'),
+          h('button', { type: 'button', role: 'menuitem', onclick: function () { attachMenu.hidden = true; fileInput.click(); } }, icon('file'), 'File'));
+        const attachBtn = h('button', {
+          type: 'button', class: 'icon-btn attach-btn', 'aria-label': 'Add photo, video or file', title: 'Add photo, video or file', 'aria-haspopup': 'menu',
+          onclick: function (event) { event.stopPropagation(); attachMenu.hidden = !attachMenu.hidden; }
+        }, icon('clip'));
+        document.addEventListener('click', function closeMenu(event) {
+          if (closed) { document.removeEventListener('click', closeMenu); return; }
+          if (!attachMenu.hidden && !event.target.closest('.attach-menu')) attachMenu.hidden = true;
+        });
+
+        function showTray() {
+          if (!pending) { tray.hidden = true; tray.replaceChildren(); return; }
+          tray.hidden = false;
+          tray.replaceChildren(h('div', { class: 'attach-chip' },
+            pending.thumb ? h('img', { src: pending.thumb, alt: '' }) : h('span', { class: 'att-file-icon' }, icon(pending.kind === 'video' ? 'video' : pending.kind === 'photo' ? 'image' : 'file')),
+            h('span', { class: 'att-file-text' }, h('strong', null, pending.name), h('span', { class: 'small muted' }, fileSize(pending.size))),
+            h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Remove attachment', title: 'Remove', onclick: function () { pending = null; showTray(); text.focus(); } }, icon('close'))));
+        }
+        async function pick(file) {
+          if (!file) return;
+          tray.hidden = false;
+          tray.replaceChildren(h('p', { class: 'small muted' }, 'Preparing ' + file.name + '…'));
+          try {
+            pending = await prepareAttachment(file);
+          } catch (error) {
+            pending = null;
+            toast(error.message || 'We could not add that file.');
+          }
+          showTray();
+          text.focus();
+        }
+        mediaInput.addEventListener('change', function () { pick(mediaInput.files[0]); mediaInput.value = ''; });
+        fileInput.addEventListener('change', function () { pick(fileInput.files[0]); fileInput.value = ''; });
+
         const form = h('form', {
           class: 'chat-composer',
           novalidate: true,
           onsubmit: async function (event) {
             event.preventDefault();
             const body = text.value;
-            const problem = SOC.validateMessage(body);
-            if (problem) { if (body.trim()) toast(problem); return; }
+            if (!pending) {
+              const problem = SOC.validateMessage(body);
+              if (problem) { if (body.trim()) toast(problem); return; }
+            }
             if (send.disabled) return;
             send.disabled = true;
+            attachBtn.disabled = true;
+            const sending = pending;
             text.value = '';
             grow();
+            if (sending) { tray.replaceChildren(h('p', { class: 'small muted' }, 'Sending ' + sending.name + '…')); }
             try {
-              await SOC.sendMessage(person.id, body);
+              await SOC.sendMessage(person.id, body, sending);
+              if (pending === sending) pending = null;
             } catch (error) {
               if (!text.value) { text.value = body; grow(); }
               toast(error.message || 'We could not send your message.');
             } finally {
+              showTray();
               send.disabled = false;
+              attachBtn.disabled = false;
               if (text.isConnected) text.focus();
             }
           }
-        }, h('label', { class: 'vh', for: 'f-message' }, 'Message'), text, send);
+        }, h('label', { class: 'vh', for: 'f-message' }, 'Message'), attachBtn, attachMenu, mediaInput, fileInput, text, send);
         /* Enter sends, Shift+Enter adds a new line. */
         text.addEventListener('keydown', function (event) {
           if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
         });
+        /* Paste a screenshot straight into the chat. */
+        text.addEventListener('paste', function (event) {
+          const file = event.clipboardData && Array.prototype.find.call(event.clipboardData.files || [], function (f) { return /^image\//.test(f.type); });
+          if (file) { event.preventDefault(); pick(file); }
+        });
         setTimeout(function () { if (text.isConnected) text.focus({ preventScroll: true }); }, 0);
-        composerBox = form;
+        composerBox = h('div', { class: 'chat-compose-wrap' }, tray, form);
       } else {
         composerBox = h('p', { class: 'chat-locked small muted' },
           'You can only message people in your circle. ',
           h('a', { href: '#u/' + person.username }, 'Add ' + first + ' to your circle'), ' to send a message.');
       }
 
+      stop = SOC.watchMessages(person.id, drawMessages, function (error) {
+        if (!closed) thread.replaceChildren(h('p', { class: 'empty' }, error.message));
+      });
+
       box.replaceChildren(
-        h('header', { class: 'chat-head' },
-          h('a', { class: 'icon-btn', href: '#messages', 'aria-label': 'Back to messages', title: 'Back to messages' }, icon('prev')),
-          h('a', { class: 'person-link', href: '#u/' + person.username },
-            avatar(person, person.avatar, 2.5),
-            h('span', { class: 'person-names' }, h('h1', { class: 'chat-name' }, person.name), h('span', { class: 'small muted' }, '@' + person.username)))),
-        thread,
-        composerBox);
+        h('div', { class: 'chat-main' },
+          h('header', { class: 'chat-head' },
+            h('a', { class: 'icon-btn', href: '#messages', 'aria-label': 'Back to messages', title: 'Back to messages' }, icon('prev')),
+            h('a', { class: 'person-link', href: '#u/' + person.username },
+              avatar(person, person.avatar, 2.5),
+              h('span', { class: 'person-names' }, h('h1', { class: 'chat-name' }, person.name), h('span', { class: 'small muted' }, '@' + person.username))),
+            h('div', { class: 'chat-head-tools' }, searchToggle, mediaToggle)),
+          searchBar,
+          thread,
+          composerBox));
     }
 
     load();
