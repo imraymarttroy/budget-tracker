@@ -1305,7 +1305,7 @@
           h('p', { class: 'small muted', style: 'margin:0 0 0.75rem' }, 'Permanently remove your profile, budget, accounts and messages.'),
           dangerBox), 'set-danger')));
     const circlePanel = h('div', { id: 'panel-set-circle', role: 'tabpanel', 'aria-labelledby': 'tab-set-circle', class: 'pf-page single', hidden: true },
-      h('div', { class: 'pf-main' }, card('Status and blocked people', 'circle', circleSettings())));
+      h('div', { class: 'pf-main' }, card('Blocked people', 'block', circleSettings())));
 
     const tabs = [['profile', 'Profile settings', profilePanel], ['circle', 'Circle settings', circlePanel]];
     const tabButtons = tabs.map(function (t, i) {
@@ -1470,26 +1470,7 @@
       }).catch(function (error) { list.replaceChildren(h('p', { class: 'empty' }, error.message)); });
     }
     draw();
-    const choice = SOC.myStatusChoice();
-    function statusOption(value, label, hint, dotClass) {
-      const radio = h('input', { type: 'radio', name: 'my-status', value: value });
-      radio.checked = choice === value;
-      radio.addEventListener('change', function () {
-        SOC.setStatusChoice(value);
-        setTimeout(refreshStatusDots, 300);
-        toast(value === 'dnd' ? 'Status set to Do not disturb.' : 'Status set to Online.');
-      });
-      return h('label', { class: 'status-option' }, radio,
-        h('span', { class: 'status-dot ' + dotClass, 'aria-hidden': 'true' }),
-        h('span', null, h('strong', null, label), h('span', { class: 'small muted' }, hint)));
-    }
-    const statusBox = h('fieldset', { class: 'status-choice' },
-      h('legend', null, 'Your status'),
-      statusOption('auto', 'Online', 'Turns to Idle when you\u2019re away for 5 minutes', 'online'),
-      statusOption('dnd', 'Do not disturb', 'Your circle sees a red dot', 'dnd'));
     return h('div', null,
-      statusBox,
-      h('h3', { class: 'status-subhead' }, 'Blocked people'),
       h('p', { class: 'muted small', style: 'margin:0 0 0.75rem' }, 'People you block are removed from your circle, won\u2019t show up when you search, and can\u2019t send you a circle request.'),
       list);
   }
@@ -1620,6 +1601,79 @@
     return holder;
   }
 
+  /* ---------- Your picture in the sidebar: a small menu to pick your status ---------- */
+
+  function statusMenu(user, here) {
+    const wrap = h('div', { class: 'me-wrap' });
+    const btn = h('button', {
+      type: 'button', class: 'sidebar-me', title: 'Your status', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+      'aria-current': here ? 'page' : null
+    }, avatarWithStatus(user, 2.25),
+      h('span', { class: 'sidebar-me-text' }, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username)));
+    const OPTIONS = [
+      ['auto', 'online', 'Online', 'Turns to Idle when you\u2019re away'],
+      ['idle', 'idle', 'Idle', 'Your circle sees a half moon'],
+      ['dnd', 'dnd', 'Do not disturb', 'Your circle sees a red dot']
+    ];
+    let menu = null;
+    function close(focusBack) {
+      if (!menu) return;
+      menu.remove(); menu = null;
+      btn.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('hashchange', closeNow);
+      if (focusBack) btn.focus();
+    }
+    function closeNow() { close(false); }
+    function outside(event) { if (menu && !menu.contains(event.target) && !btn.contains(event.target)) close(false); }
+    function onKey(event) {
+      if (event.key === 'Escape') { event.preventDefault(); close(true); return; }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      const items = Array.from(menu.querySelectorAll('[role="menuitemradio"], [role="menuitem"]'));
+      const i = items.indexOf(document.activeElement);
+      event.preventDefault();
+      items[(i + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+    }
+    function reposition() {
+      if (!menu) return;
+      const r = btn.getBoundingClientRect();
+      const mobile = window.matchMedia('(max-width: 760px)').matches;
+      menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+      if (mobile) { menu.style.top = ''; menu.style.bottom = (window.innerHeight - r.top + 8) + 'px'; }
+      else { menu.style.bottom = ''; menu.style.top = (r.bottom + 6) + 'px'; }
+    }
+    function open() {
+      const choice = SOC.myStatusChoice();
+      menu = h('div', { class: 'status-menu', role: 'menu', 'aria-label': 'Your status' },
+        OPTIONS.map(function (o) {
+          return h('button', {
+            type: 'button', class: 'status-item', role: 'menuitemradio', 'aria-checked': choice === o[0] ? 'true' : 'false',
+            onclick: function () {
+              SOC.setStatusChoice(o[0]);
+              setTimeout(refreshStatusDots, 300);
+              close(true);
+            }
+          }, h('span', { class: 'status-dot ' + o[1], 'aria-hidden': 'true' }),
+            h('span', { class: 'status-item-text' }, h('strong', null, o[2]), h('span', { class: 'small muted' }, o[3])));
+        }),
+        h('hr', { class: 'status-sep' }),
+        h('a', { class: 'status-item status-profile', role: 'menuitem', href: '#profile', onclick: closeNow }, h('strong', null, 'View profile')));
+      document.body.appendChild(menu);
+      btn.setAttribute('aria-expanded', 'true');
+      reposition();
+      document.addEventListener('pointerdown', outside, true);
+      document.addEventListener('keydown', onKey);
+      window.addEventListener('resize', reposition);
+      window.addEventListener('hashchange', closeNow);
+      (menu.querySelector('[aria-checked="true"]') || menu.querySelector('.status-item')).focus();
+    }
+    btn.addEventListener('click', function () { if (menu) close(false); else open(); });
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
   function shell(view, content) {
     const user = BT.currentUser();
     const current = view;
@@ -1662,9 +1716,7 @@
       h('div', { class: 'sidebar-top' },
         h('a', { class: 'brand sidebar-brand', href: '#dashboard', 'aria-label': 'PassbookHub' }, logoMark('sidebar-mark'), h('span', { class: 'sidebar-word' }, 'PassbookHub')),
         collapseBtn),
-      h('a', { class: 'sidebar-me', href: '#profile', title: 'Your profile', 'aria-current': current === 'profile' ? 'page' : null },
-        avatarWithStatus(user, 2.25),
-        h('span', { class: 'sidebar-me-text' }, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username))),
+      statusMenu(user, current === 'profile'),
       h('nav', { 'aria-label': 'Main' },
         h('ul', { class: 'nav-list' },
           item('dashboard', '#dashboard', 'Dashboard',

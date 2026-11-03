@@ -305,10 +305,11 @@ window.SOC = (function () {
   const presenceDoc = function (uid) { return F().doc(db(), 'presence', uid); };
 
   function myStatusChoice() {
-    try { return localStorage.getItem(STATUS_KEY) === 'dnd' ? 'dnd' : 'auto'; } catch (e) { return 'auto'; }
+    try { const v = localStorage.getItem(STATUS_KEY); return v === 'dnd' || v === 'idle' ? v : 'auto'; } catch (e) { return 'auto'; }
   }
   function myState() {
-    if (myStatusChoice() === 'dnd') return 'dnd';
+    const choice = myStatusChoice();
+    if (choice === 'dnd' || choice === 'idle') return choice;
     if (document.visibilityState !== 'visible' || Date.now() - lastActive > IDLE_AFTER) return 'idle';
     return 'online';
   }
@@ -350,9 +351,9 @@ window.SOC = (function () {
     document.removeEventListener('visibilitychange', onVisibility);
     ACTIVITY.forEach(function (t) { window.removeEventListener(t, onActivity); });
   }
-  /** "auto" (Online, goes Idle when away) or "dnd". Takes effect right away. */
+  /** "auto" (Online, goes Idle when away), "idle" or "dnd". Takes effect right away. */
   function setStatusChoice(choice) {
-    try { localStorage.setItem(STATUS_KEY, choice === 'dnd' ? 'dnd' : 'auto'); } catch (e) { /* storage off */ }
+    try { localStorage.setItem(STATUS_KEY, choice === 'dnd' || choice === 'idle' ? choice : 'auto'); } catch (e) { /* storage off */ }
     beat();
   }
   function myStatus() { return me() ? myState() : 'offline'; }
