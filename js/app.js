@@ -47,6 +47,8 @@
     warning: '<path d="M10 3 18 17H2z"/><path d="M10 8.5v3.5M10 14.5v.01"/>',
     over: '<circle cx="10" cy="10" r="7.5"/><path d="m7 7 6 6M13 7l-6 6"/>',
     close: '<path d="m5 5 10 10M15 5 5 15"/>',
+    eye: '<path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.5"/>',
+    eyeClosed: '<path d="M2.5 8c1.9 2.6 4.4 3.9 7.5 3.9s5.6-1.3 7.5-3.9"/><path d="m4.9 10.6-1.5 2M10 11.9v2.5M15.1 10.6l1.5 2"/>',
     search: '<circle cx="8.5" cy="8.5" r="5"/><path d="m12.5 12.5 4 4"/>',
     up: '<path d="m5 12.5 5-5 5 5"/>',
     down: '<path d="m5 7.5 5 5 5-5"/>',
@@ -103,10 +105,13 @@
         onclick: function () {
           const showing = control.type === 'text';
           control.type = showing ? 'password' : 'text';
-          toggle.textContent = showing ? 'Show' : 'Hide';
+          toggle.replaceChildren(icon(showing ? 'eyeClosed' : 'eye'));
           toggle.setAttribute('aria-pressed', String(!showing));
+          toggle.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+          toggle.title = showing ? 'Show password' : 'Hide password';
         }
-      }, 'Show');
+      }, icon('eyeClosed'));
+      toggle.title = 'Show password';
       inner = h('div', { class: 'with-toggle' }, control, toggle);
     }
 
