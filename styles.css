@@ -1672,5 +1672,12 @@ button.note-bubble:hover { transform: translateY(-1px); }
 @keyframes quote-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .quote-text { margin: 0; font-size: 1.125rem; line-height: 1.45; font-weight: 600; letter-spacing: -0.005em; }
 .quote-who { margin: 0.5rem 0 0; color: var(--accent); font-weight: 600; }
-.quote-controls { display: flex; justify-content: center; gap: 0.25rem; margin-top: 0.75rem; }
+.quote-kicker { display: inline-block; align-self: flex-start; margin-bottom: 0.5rem; padding: 0.125rem 0.5rem; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 700; font-size: 0.6875rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.quote-stage.story .quote-text { font-size: 0.9875rem; font-weight: 500; line-height: 1.5; }
+.quote-stage { min-height: 9rem; }
+.quote-bar { display: block; height: 3px; margin-top: 1rem; border-radius: 3px; background: var(--wash); overflow: hidden; }
+.quote-bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; }
+.quote-bar.run span { animation: quote-bar 5s linear forwards; }
+@keyframes quote-bar { from { width: 0; } to { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .quote-bar { display: none; } }
 @media (prefers-reduced-motion: reduce) { .quote-stage.in { animation: none; } }

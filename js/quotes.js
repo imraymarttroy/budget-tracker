@@ -1,5 +1,6 @@
-/* Money motivation for the profile slideshow: traditional sayings, quotes old enough to be
-   in the public domain, and original PassbookHub tips. [text, who] */
+/* Money motivation for the profile slideshow (50 items): traditional sayings, quotes old enough
+   to be in the public domain, original PassbookHub tips, and short true stories of Filipino
+   entrepreneurs told in our own words (not quotes). [text, who, kind] — kind 'story' = no quote marks. */
 window.MONEY_QUOTES = [
   ['A penny saved is a penny earned.', 'Proverb'],
   ['Kapag may isinuksok, may madudukot.', 'Filipino proverb'],
@@ -14,6 +15,19 @@ window.MONEY_QUOTES = [
   ['Go to the ant; consider its ways and be wise. It stores its provisions in summer.', 'Proverbs 6:6–8'],
   ['Do not save what is left after spending, but spend what is left after saving.', 'Proverb'],
   ['The best time to plant a tree was twenty years ago. The second best time is now.', 'Proverb'],
+  ['Save for the storm while the sun is shining.', 'Proverb'],
+  ['Pag may tiyaga, may nilaga.', 'Filipino proverb'],
+  ['Walang mahirap na gawa kapag dinaan sa tiyaga.', 'Filipino proverb'],
+  ['Nasa Diyos ang awa, nasa tao ang gawa.', 'Filipino proverb'],
+  ['Many a little makes a mickle.', 'Proverb'],
+  ['A fool and his money are soon parted.', 'Proverb'],
+
+  ['Henry Sy sold surplus army boots after the war, then opened a small shoe store, ShoeMart, in Quiapo in 1958. It grew into SM. Start small, and keep going.', 'Henry Sy · SM', 'story'],
+  ['At 13, after his father died and the family lost everything, John Gokongwei Jr. sold soap, thread and candles from a bicycle in Cebu. He went on to build JG Summit. Hard times can be a starting line.', 'John Gokongwei Jr. · JG Summit', 'story'],
+  ['Lucio Tan mopped floors at a cigarette factory to pay for school. He learned the business from the ground up and founded Fortune Tobacco in 1966.', 'Lucio Tan · LT Group', 'story'],
+  ['Socorro “Nanay Coring” Ramos and her husband opened National Book Store as a small stall in Escolta in 1942. War and a typhoon wiped it out; they rebuilt every time.', 'Socorro Ramos · National Book Store', 'story'],
+  ['Tony Tan Caktiong opened a Magnolia ice cream parlor in Cubao in 1975. Customers kept asking for hot food, so he listened, and by 1978 it was Jollibee.', 'Tony Tan Caktiong · Jollibee', 'story'],
+
   ['Pay yourself first. Your future self is a bill worth paying.', 'PassbookHub'],
   ['Half for needs, some for wants, the rest for later.', 'PassbookHub'],
   ['Every peso has a job. Give it one before it finds one on its own.', 'PassbookHub'],
@@ -24,11 +38,20 @@ window.MONEY_QUOTES = [
   ['Buy what you need, wait on what you want.', 'PassbookHub'],
   ['Debt borrows from your future. Savings lend to it.', 'PassbookHub'],
   ['Hindi kailangang malaki agad. Ang mahalaga, tuloy-tuloy.', 'PassbookHub'],
-  ['Ipon muna bago gastos. Salamat sa\u2019yo, future self.', 'PassbookHub'],
+  ['Ipon muna bago gastos. Salamat sa’yo, future self.', 'PassbookHub'],
   ['Guaranteed high returns? Guaranteed red flag.', 'PassbookHub'],
   ['Progress, not perfection. A small deposit today still counts.', 'PassbookHub'],
   ['Comparison is expensive. Stick to your own plan.', 'PassbookHub'],
   ['Celebrate milestones, not just paydays.', 'PassbookHub'],
   ['Knowing where your money goes is the first raise you can give yourself.', 'PassbookHub'],
-  ['Save for the storm while the sun is shining.', 'Proverb']
+  ['Sweldo day is not a spending day. It is a planning day.', 'PassbookHub'],
+  ['Wait 24 hours before a big buy. If you still want it tomorrow, it fits your plan.', 'PassbookHub'],
+  ['Pay credit cards in full. Interest is the most expensive thing you can buy.', 'PassbookHub'],
+  ['Lifestyle can grow with your income, just slower than your savings.', 'PassbookHub'],
+  ['Hindi mo kailangang sumabay sa uso para umasenso.', 'PassbookHub'],
+  ['Automate your savings so willpower doesn’t have to.', 'PassbookHub'],
+  ['Investing is not about timing the market. It is about time in it.', 'PassbookHub'],
+  ['Give your goals a name and a date. “Someday” has no deadline.', 'PassbookHub'],
+  ['Protect your income before you grow it: emergency fund, insurance, then investing.', 'PassbookHub'],
+  ['Barya ngayon, kayamanan bukas.', 'PassbookHub']
 ];
