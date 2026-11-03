@@ -551,6 +551,46 @@ window.SOC = (function () {
     await run(function () { return F().setDoc(F().doc(sharedTxCol(owner), tx.id), cleanTx(tx)); });
   }
 
+  /* ---------- Money accounts (Savings tracker) ----------
+     users/{owner}/accounts/{id} = { bank, name, type, cents, last4, createdAt, updatedAt }.
+     cents is the balance; for credit and loan it is the amount owed. */
+
+  const ACCOUNT_TYPES = { wallet: 'Wallet', savings: 'Savings', credit: 'Credit', loan: 'Loan' };
+  const accountsCol = function (owner) { return F().collection(db(), 'users', owner, 'accounts'); };
+
+  function validateAccount(a) {
+    const errors = {};
+    if (!a.bank) errors.bank = 'Choose a bank.';
+    if (!a.name || !a.name.trim()) errors.name = 'Give this account a name.';
+    else if (a.name.trim().length > 40) errors.name = 'Use 40 characters or fewer.';
+    if (!ACCOUNT_TYPES[a.type]) errors.type = 'Choose a type.';
+    if (!(Number.isInteger(a.cents) && a.cents >= 0 && a.cents <= 100000000000000)) errors.cents = 'Enter an amount of zero or more.';
+    if (a.last4 && !/^[0-9]{4}$/.test(a.last4)) errors.last4 = 'Enter exactly 4 digits, or leave it blank.';
+    return Object.keys(errors).length ? errors : null;
+  }
+
+  function accountFields(a) {
+    return { bank: a.bank, name: a.name.trim(), type: a.type, cents: a.cents, last4: a.last4 || '', updatedAt: Date.now() };
+  }
+
+  function watchAccounts(owner, onChange, onError) {
+    return F().onSnapshot(accountsCol(owner || me()), function (snap) {
+      onChange(snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); })
+        .sort(function (a, b) { return a.createdAt - b.createdAt; }));
+    }, function (error) { if (onError) onError(friendly(error)); });
+  }
+  async function addAccount(owner, a) {
+    const ref = F().doc(accountsCol(owner || me()));
+    await run(function () { return F().setDoc(ref, Object.assign({ createdAt: Date.now() }, accountFields(a))); });
+    return ref.id;
+  }
+  async function updateAccount(owner, id, a) {
+    await run(function () { return F().updateDoc(F().doc(accountsCol(owner || me()), id), accountFields(a)); });
+  }
+  async function deleteAccount(owner, id) {
+    await run(function () { return F().deleteDoc(F().doc(accountsCol(owner || me()), id)); });
+  }
+
   /* ---------- Account deletion ---------- */
 
   /** Removes everything social that belongs to the signed-in person. Call before deleting the account. */
@@ -566,6 +606,8 @@ window.SOC = (function () {
     lists[1].docs.forEach(function (d) { refs.push(circleDoc(d.id, uid)); });
     refs.push(profileDoc(uid));
     refs.push(trustDoc(uid));
+    const myAccounts = await run(function () { return F().getDocs(accountsCol(uid)); });
+    myAccounts.docs.forEach(function (d) { refs.push(d.ref); });
     const sharedWithMe = await run(function () { return F().getDocs(F().query(F().collection(db(), 'trust'), F().where('member', '==', uid))); });
     sharedWithMe.docs.forEach(function (d) { refs.push(d.ref); });
     /* Your own messages and the conversations you are in. */
@@ -605,6 +647,8 @@ window.SOC = (function () {
     myTrust: myTrust, trustedMe: trustedMe, trustLoaded: trustLoaded, trustFrom: trustFrom,
     inviteTrusted: inviteTrusted, setTrustRole: setTrustRole, syncTrustCurrency: syncTrustCurrency, removeTrusted: removeTrusted,
     acceptTrust: acceptTrust, leaveTrust: leaveTrust,
+    ACCOUNT_TYPES: ACCOUNT_TYPES, validateAccount: validateAccount, watchAccounts: watchAccounts,
+    addAccount: addAccount, updateAccount: updateAccount, deleteAccount: deleteAccount,
     watchSharedTx: watchSharedTx, addSharedTx: addSharedTx, updateSharedTx: updateSharedTx, deleteSharedTx: deleteSharedTx, restoreSharedTx: restoreSharedTx
   };
 })();

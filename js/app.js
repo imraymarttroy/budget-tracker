@@ -2893,14 +2893,41 @@
     drawHint();
     drawAll();
 
-    return h('div', { class: 'wide' },
-      h('section', { class: 'identity' },
-        avatar(user, user.avatar, 3.25),
-        h('div', null,
-          h('h1', null, user.name),
-          user.bio ? h('p', { class: 'small muted' }, user.bio) : null),
-        book.mine ? privatePin() : sharedBadge(book)),
-      book.mine ? trustCard() : null,
+    /* ---- Tabs: Savings tracker, Wallet, Savings, Credit, Loan, 50/30/20 ---- */
+    const tracker = savingsTracker(book);
+    const budgetPanel = h('div', { class: 'budget-panel' });
+    const tabButtons = DASH_TABS.map(function (t) {
+      return h('button', {
+        type: 'button', role: 'tab', class: 'dash-tab', id: 'tab-' + t[0], 'aria-controls': t[0] === 'budget' ? 'panel-budget' : 'panel-tracker',
+        onclick: function () { pickTab(t[0]); },
+        onkeydown: function (event) {
+          const i = DASH_TABS.findIndex(function (x) { return x[0] === t[0]; });
+          let j = null;
+          if (event.key === 'ArrowRight') j = (i + 1) % DASH_TABS.length;
+          if (event.key === 'ArrowLeft') j = (i - 1 + DASH_TABS.length) % DASH_TABS.length;
+          if (j !== null) { event.preventDefault(); pickTab(DASH_TABS[j][0]); tabButtons[j].focus(); }
+        }
+      }, t[1]);
+    });
+    const trackerPanel = h('div', { id: 'panel-tracker', role: 'tabpanel' }, tracker.el);
+    function pickTab(name) {
+      state.dashTab = name;
+      tabButtons.forEach(function (b, i) {
+        const on = DASH_TABS[i][0] === name;
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
+      });
+      trackerPanel.hidden = name === 'budget';
+      budgetPanel.hidden = name !== 'budget';
+      trackerPanel.setAttribute('aria-labelledby', 'tab-' + name);
+      if (name !== 'budget') tracker.setTab(name);
+    }
+    tracker.onTab = function (name) { if (state.dashTab !== name) pickTab(name); };
+
+    budgetPanel.id = 'panel-budget';
+    budgetPanel.setAttribute('role', 'tabpanel');
+    budgetPanel.setAttribute('aria-labelledby', 'tab-budget');
+    budgetPanel.append(
       h('section', { 'aria-label': 'Monthly summary' },
         h('div', { class: 'month-nav' },
           monthHeading,
@@ -2915,12 +2942,249 @@
           h('div', { class: 'row' },
             h('button', { type: 'button', class: 'link', onclick: exportCsv }, 'Export CSV'),
             filter)),
-        listBox),
+        listBox));
+    pickTab(DASH_TABS.some(function (t) { return t[0] === state.dashTab; }) ? state.dashTab : 'tracker');
+
+    return h('div', { class: 'wide' },
+      h('section', { class: 'identity' },
+        avatar(user, user.avatar, 3.25),
+        h('div', null,
+          h('h1', null, user.name),
+          user.bio ? h('p', { class: 'small muted' }, user.bio) : null),
+        book.mine ? privatePin() : sharedBadge(book)),
+      book.mine ? trustCard() : null,
+      h('div', { class: 'dash-tabs', role: 'tablist', 'aria-label': 'Dashboard sections' }, tabButtons),
+      trackerPanel,
+      budgetPanel,
       h('p', { class: 'footnote' }, book.mine
         ? 'Your data is saved to your account, so you can sign in from any device.'
         : 'This is ' + user.name.split(' ')[0] + '\u2019s budget. Only ' + user.name.split(' ')[0] + ' and you can see it.'));
   }
 
+
+
+  /* ---------- Savings tracker (bank accounts, wallets, credit cards, loans) ---------- */
+
+  const DASH_TABS = [['tracker', 'Savings tracker'], ['wallet', 'Wallet'], ['savings', 'Savings'], ['credit', 'Credit'], ['loan', 'Loan'], ['budget', '50/30/20']];
+
+  function amountsHidden() { try { return localStorage.getItem('pbh.hideAmounts') === '1'; } catch (e) { return false; } }
+  function setAmountsHidden(on) { try { localStorage.setItem('pbh.hideAmounts', on ? '1' : '0'); } catch (e) { /* storage off */ } }
+
+  const CHIP_SVG = '<svg viewBox="0 0 40 30" aria-hidden="true"><rect x="0.5" y="0.5" width="39" height="29" rx="5" fill="#e9cf8a" stroke="rgba(0,0,0,0.25)"/><path d="M0 10h13M0 20h13M27 10h13M27 20h13M13 0v30M27 0v30M13 15h14" stroke="rgba(0,0,0,0.3)" fill="none"/></svg>';
+  const WAVES_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 7.5a6 6 0 0 1 0 9M12 5a9.5 9.5 0 0 1 0 14M15.5 2.5a13 13 0 0 1 0 19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  function svgNode(markup) { const d = document.createElement('span'); d.innerHTML = markup; return d.firstChild; }
+
+  /**
+   * The tracker for one dashboard. book: { mine, canEdit, owner, currency }.
+   * Returns { el, setTab(tab) } — el holds the summary, the cards and the add tile.
+   */
+  function savingsTracker(book) {
+    const money = function (cents) { return BT.formatMoney(cents, book.currency); };
+    const el = h('section', { class: 'tracker', 'aria-live': 'polite' }, h('p', { class: 'muted small' }, 'Loading accounts…'));
+    let accounts = null;
+    let tab = 'tracker';
+    let hidden = amountsHidden();
+
+    const stop = SOC.watchAccounts(book.mine ? null : book.owner.id, function (list) {
+      if (wasShown && !el.isConnected) { stop(); return; }
+      accounts = list;
+      draw();
+    }, function (error) { el.replaceChildren(h('p', { class: 'empty' }, error.message)); });
+    let wasShown = false;
+    const prevCleanup = state.cleanup;
+    state.cleanup = function () { stop(); if (prevCleanup) prevCleanup(); };
+
+    function show(cents) { return hidden ? '••••••' : money(cents); }
+    function sum(type) { return (accounts || []).filter(function (a) { return a.type === type; }).reduce(function (t, a) { return t + a.cents; }, 0); }
+
+    function card(a) {
+      const bank = BANKS.find(a.bank);
+      const ink = BANKS.inkOn(bank.color);
+      const owed = a.type === 'credit' || a.type === 'loan';
+      const label = bank.name + ' ' + a.name + ', ' + SOC.ACCOUNT_TYPES[a.type] + ', ' + (owed ? 'owed ' : '') + (hidden ? 'amount hidden' : money(a.cents));
+      return h(book.canEdit ? 'button' : 'div', {
+        type: book.canEdit ? 'button' : null,
+        class: 'bank-card' + (owed ? ' owed' : ''),
+        style: '--card-bg:' + bank.color + ';--card-ink:' + ink + ';--card-accent:' + bank.accent,
+        'aria-label': book.canEdit ? 'Edit ' + label : label,
+        title: book.canEdit ? 'Edit account' : null,
+        onclick: book.canEdit ? function () { openAccountForm(a); } : null
+      },
+      h('span', { class: 'bank-card-top' },
+        h('span', { class: 'bank-card-bank' }, bank.name),
+        h('span', { class: 'bank-card-type' }, SOC.ACCOUNT_TYPES[a.type])),
+      h('span', { class: 'bank-card-mid' }, svgNode(CHIP_SVG), svgNode(WAVES_SVG)),
+      h('span', { class: 'bank-card-bottom' },
+        h('span', { class: 'bank-card-name' }, a.name),
+        a.last4 ? h('span', { class: 'bank-card-last4 num' }, '•••• ' + a.last4) : null),
+      h('span', { class: 'bank-card-amount num' }, (owed && a.cents > 0 && !hidden ? '− ' : '') + show(a.cents)));
+    }
+
+    function draw() {
+      if (accounts === null) return;
+      wasShown = wasShown || el.isConnected;
+      const shown = tab === 'tracker' ? accounts : accounts.filter(function (a) { return a.type === tab; });
+      const saved = sum('wallet') + sum('savings');
+      const owed = sum('credit') + sum('loan');
+      const eye = h('button', {
+        type: 'button', class: 'icon-btn tracker-eye', 'aria-pressed': hidden ? 'true' : 'false',
+        'aria-label': hidden ? 'Show amounts' : 'Hide amounts', title: hidden ? 'Show amounts' : 'Hide amounts',
+        onclick: function () { hidden = !hidden; setAmountsHidden(hidden); draw(); }
+      }, icon(hidden ? 'eyeClosed' : 'eye'));
+
+      let head;
+      if (tab === 'tracker') {
+        head = h('div', { class: 'tracker-total' },
+          h('div', null,
+            h('p', { class: 'tracker-label' }, 'Total savings'),
+            h('p', { class: 'tracker-big num' }, show(saved)),
+            h('p', { class: 'small muted tracker-sub' },
+              'Savings ', h('span', { class: 'num' }, show(sum('savings'))), ' · Wallet ', h('span', { class: 'num' }, show(sum('wallet'))),
+              owed ? [' · Owed ', h('span', { class: 'num' }, show(owed)), ' · Net worth ', h('span', { class: 'num' }, (saved - owed < 0 && !hidden ? '−' : '') + show(Math.abs(saved - owed)))] : null)),
+          eye);
+      } else {
+        const owedTab = tab === 'credit' || tab === 'loan';
+        head = h('div', { class: 'tracker-total' },
+          h('div', null,
+            h('p', { class: 'tracker-label' }, owedTab ? 'Total ' + SOC.ACCOUNT_TYPES[tab].toLowerCase() + ' owed' : 'Total in ' + SOC.ACCOUNT_TYPES[tab].toLowerCase()),
+            h('p', { class: 'tracker-big num' }, (owedTab && sum(tab) > 0 && !hidden ? '− ' : '') + show(sum(tab)))),
+          eye);
+      }
+
+      const tiles = shown.map(card);
+      if (book.canEdit) {
+        tiles.push(h('button', { type: 'button', class: 'bank-card add', onclick: function () { openAccountForm(null, tab === 'tracker' ? null : tab); } },
+          h('span', { class: 'add-plus', 'aria-hidden': 'true' }, '+'), h('span', null, 'Add account')));
+      }
+      el.replaceChildren(head,
+        tiles.length ? h('div', { class: 'bank-grid' }, tiles)
+          : h('p', { class: 'empty' }, tab === 'tracker' ? 'No accounts yet.' : 'No ' + SOC.ACCOUNT_TYPES[tab].toLowerCase() + ' accounts yet.'));
+    }
+
+    /* ---- Add or edit an account ---- */
+
+    function openAccountForm(existing, presetType) {
+      const banks = BANKS.forCurrency(book.currency);
+      if (existing && !banks.some(function (b) { return b.id === existing.bank; })) banks.unshift(BANKS.find(existing.bank));
+      let bankId = existing ? existing.bank : null;
+      const previous = document.activeElement;
+
+      const preview = h('div', { class: 'acct-preview' });
+      const bankGrid = h('div', { class: 'bank-pick', role: 'radiogroup', 'aria-label': 'Bank' }, banks.map(function (b) {
+        const ink = BANKS.inkOn(b.color);
+        return h('button', {
+          type: 'button', role: 'radio', class: 'bank-chip', 'data-bank': b.id, 'aria-checked': b.id === bankId ? 'true' : 'false',
+          style: '--chip-bg:' + b.color + ';--chip-ink:' + ink + ';--chip-accent:' + b.accent,
+          onclick: function () { bankId = b.id; syncPick(); refresh(); }
+        }, b.name);
+      }));
+      function syncPick() {
+        bankGrid.querySelectorAll('.bank-chip').forEach(function (c) { c.setAttribute('aria-checked', c.dataset.bank === bankId ? 'true' : 'false'); });
+        const err = form.querySelector('.bank-error'); if (err) err.hidden = true;
+      }
+
+      const typeSelect = h('select', { id: 'f-acct-type', name: 'acct-type' },
+        Object.keys(SOC.ACCOUNT_TYPES).map(function (k) { return h('option', { value: k }, SOC.ACCOUNT_TYPES[k]); }));
+      typeSelect.value = existing ? existing.type : (presetType || 'savings');
+      const nameIn = h('input', { id: 'f-acct-name', name: 'acct-name', maxlength: 40, autocomplete: 'off', placeholder: 'e.g. Emergency Fund' });
+      const amountIn = h('input', { id: 'f-acct-amount', name: 'acct-amount', type: 'number', inputmode: 'decimal', step: '0.01', min: '0' });
+      const last4In = h('input', { id: 'f-acct-last4', name: 'acct-last4', inputmode: 'numeric', maxlength: 4, autocomplete: 'off', placeholder: 'Optional' });
+      if (existing) { nameIn.value = existing.name; amountIn.value = (existing.cents / 100).toFixed(2); last4In.value = existing.last4 || ''; }
+      const amountLabel = h('label', { for: 'f-acct-amount' });
+      function refresh() {
+        const owedType = typeSelect.value === 'credit' || typeSelect.value === 'loan';
+        amountLabel.textContent = (owedType ? 'Amount owed' : 'Balance') + ' (' + book.currency + ')';
+        const cents = Math.round(parseFloat(amountIn.value || '0') * 100) || 0;
+        const temp = { bank: bankId || 'other', name: nameIn.value.trim() || 'Account name', type: typeSelect.value, cents: Math.max(0, cents), last4: /^[0-9]{4}$/.test(last4In.value) ? last4In.value : '' };
+        const wasHidden = hidden; hidden = false;
+        preview.replaceChildren(card(temp));
+        hidden = wasHidden;
+        preview.firstChild.tabIndex = -1;
+        preview.firstChild.onclick = null;
+        preview.firstChild.setAttribute('aria-hidden', 'true');
+      }
+      [typeSelect, nameIn, amountIn, last4In].forEach(function (c) { c.addEventListener('input', refresh); c.addEventListener('change', refresh); });
+
+      const errorBox = h('p', { class: 'form-error', role: 'alert', hidden: true });
+      const save = h('button', { type: 'submit', class: 'btn primary' }, existing ? 'Save' : 'Add account');
+      const del = existing ? h('button', {
+        type: 'button', class: 'btn danger',
+        onclick: async function () {
+          const ok = await ask({ title: 'Delete ' + existing.name + '?', body: 'This removes the account from your Savings tracker. You can’t undo this.', yes: 'Delete', no: 'Keep' });
+          if (!ok) return;
+          try { await SOC.deleteAccount(book.mine ? null : book.owner.id, existing.id); toast('Account deleted.'); close(); }
+          catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
+        }
+      }, 'Delete') : null;
+
+      function fieldErr(name) { return h('p', { class: 'error small', id: 'e-' + name, hidden: true }); }
+      const form = h('form', {
+        class: 'acct-form', novalidate: true,
+        onsubmit: async function (event) {
+          event.preventDefault();
+          const raw = amountIn.value.trim();
+          const cents = raw === '' ? 0 : Math.round(parseFloat(raw) * 100);
+          const data = { bank: bankId, name: nameIn.value, type: typeSelect.value, cents: isFinite(cents) ? cents : -1, last4: last4In.value.trim() };
+          const problems = SOC.validateAccount(data);
+          form.querySelectorAll('.error').forEach(function (e) { e.hidden = true; });
+          errorBox.hidden = true;
+          if (problems) {
+            Object.keys(problems).forEach(function (k) {
+              const box = form.querySelector('#e-' + k);
+              if (box) { box.textContent = problems[k]; box.hidden = false; }
+            });
+            const first = problems.bank ? bankGrid.querySelector('.bank-chip') : problems.name ? nameIn : problems.cents ? amountIn : last4In;
+            first.focus();
+            return;
+          }
+          save.disabled = true;
+          try {
+            if (existing) await SOC.updateAccount(book.mine ? null : book.owner.id, existing.id, data);
+            else await SOC.addAccount(book.mine ? null : book.owner.id, data);
+            toast(existing ? 'Account updated.' : BANKS.find(data.bank).name + ' account added.');
+            if (!existing && tab !== 'tracker' && tab !== data.type) setTab(data.type);
+            close();
+          } catch (error) {
+            save.disabled = false;
+            errorBox.textContent = error.message; errorBox.hidden = false;
+          }
+        }
+      },
+      h('div', { class: 'acct-head' },
+        h('h2', { id: 'acct-title' }, existing ? 'Edit account' : 'Add account'),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', title: 'Close', onclick: function () { close(); } }, icon('close'))),
+      preview,
+      h('div', { class: 'acct-field' },
+        h('span', { class: 'acct-label' }, book.currency === 'PHP' ? 'Bank or e-wallet' : 'Bank (' + book.currency + ')'),
+        bankGrid, h('p', { class: 'error small bank-error', id: 'e-bank', hidden: true })),
+      h('div', { class: 'acct-row' },
+        h('div', { class: 'acct-field' }, h('label', { for: 'f-acct-type' }, 'Type'), typeSelect),
+        h('div', { class: 'acct-field grow' }, h('label', { for: 'f-acct-name' }, 'Account name'), nameIn, fieldErr('name'))),
+      h('div', { class: 'acct-row' },
+        h('div', { class: 'acct-field grow' }, amountLabel, amountIn, fieldErr('cents')),
+        h('div', { class: 'acct-field' }, h('label', { for: 'f-acct-last4' }, 'Last 4 digits'), last4In, fieldErr('last4'))),
+      errorBox,
+      h('div', { class: 'ask-actions' }, del, h('span', { class: 'grow' }), h('button', { type: 'button', class: 'btn', onclick: function () { close(); } }, 'Cancel'), save));
+
+      const overlay = h('div', { class: 'chat-overlay ask acct-overlay' },
+        h('div', { class: 'ask-card acct-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'acct-title' }, form));
+      function onKey(event) { if (event.key === 'Escape') close(); }
+      function close() {
+        document.removeEventListener('keydown', onKey);
+        overlay.remove();
+        if (previous && previous.isConnected) previous.focus();
+      }
+      overlay.addEventListener('click', function (event) { if (event.target === overlay) close(); });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+      refresh();
+      (bankId ? nameIn : bankGrid.querySelector('.bank-chip')).focus();
+    }
+
+    function setTab(next) { tab = next; draw(); if (api.onTab) api.onTab(next); }
+    const api = { el: el, setTab: setTab, onTab: null };
+    return api;
+  }
 
   /* ---------- Trusted person ---------- */
 
