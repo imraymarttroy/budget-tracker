@@ -153,6 +153,7 @@
       control.setAttribute('aria-invalid', 'true');
       control.setAttribute('aria-describedby', ((control.getAttribute('aria-describedby') || '') + ' ' + node.id).trim());
       if (!first) first = control;
+      if (form.classList.contains('shake-errors')) shake(control.closest('.with-toggle') || control);
     });
     if (errors._form) {
       const summary = form.querySelector('.form-error');
@@ -160,6 +161,14 @@
       summary.hidden = false;
     }
     if (first) first.focus();
+  }
+
+  /** Wiggles a field side to side so a wrong entry is easy to spot. */
+  function shake(node) {
+    node.classList.remove('shake');
+    void node.offsetWidth; /* restart the animation if it is already running */
+    node.classList.add('shake');
+    node.addEventListener('animationend', function () { node.classList.remove('shake'); }, { once: true });
   }
 
   function formError() {
@@ -422,28 +431,28 @@
 
   function signInForm() {
     const form = h('form', {
-      class: 'stack',
+      class: 'stack shake-errors',
       novalidate: true,
       onsubmit: function (event) {
         event.preventDefault();
-        const email = form.elements.email.value.trim().toLowerCase();
+        const login = form.elements.email.value.trim();
         const password = form.elements.password.value;
         const errors = {};
-        if (!BT.validEmail(email)) errors.email = 'Enter your email address.';
+        if (!login) errors.email = 'Enter your email or username.';
         if (!password) errors.password = 'Enter your password.';
         if (Object.keys(errors).length) return showErrors(form, errors);
         busy(form, 'Signing in…', async function () {
-          const ok = await BT.signIn(email, password);
-          if (!ok) {
-            form.elements.password.value = '';
-            showErrors(form, { _form: 'Incorrect email or password.' });
-            form.elements.password.focus();
+          try {
+            await BT.signIn(login, password);
+          } catch (error) {
+            if (error instanceof BT.FieldError && error.fields.password) form.elements.password.value = '';
+            throw error;
           }
           /* On success the session listener loads the account and redraws. */
         });
       }
     },
-      field({ name: 'email', label: 'Email', type: 'email', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'you@example.com' } }),
+      field({ name: 'email', label: 'Email or username', attrs: { autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: 'you@example.com or juandc' } }),
       field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'current-password', placeholder: 'Your password' } }),
       h('p', { class: 'small auth-forgot' }, h('a', { href: '#forgot' }, 'Forgot password?')),
       formError(),

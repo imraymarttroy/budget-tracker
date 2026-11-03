@@ -140,6 +140,16 @@ textarea { display: block; min-height: 6rem; resize: vertical; }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; border-color: var(--accent); }
 [aria-invalid="true"] { border-color: var(--critical) !important; }
 
+/* Wrong email, username or password on sign-in */
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-8px); }
+  40%, 60% { transform: translateX(8px); }
+}
+.shake { animation: shake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+@media (prefers-reduced-motion: reduce) { .shake { animation: none; } }
+
 .with-toggle { position: relative; }
 .with-toggle input { padding-right: 3rem !important; }
 .with-toggle button {
