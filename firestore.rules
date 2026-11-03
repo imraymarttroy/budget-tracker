@@ -112,6 +112,56 @@ service cloud.firestore {
       }
     }
 
+    // chats/{a_b}: one conversation between two people in each other's circle.
+    // The id is both uids sorted and joined with "_", so membership is readable from the id alone.
+    match /chats/{chatId} {
+      function pair() {
+        return chatId.split('_');
+      }
+      function isMember() {
+        return signedIn() && pair().size() == 2 && request.auth.uid in pair();
+      }
+      // Circle entries are written to both people's lists, and nobody is in their own circle.
+      function circleWithOther() {
+        return exists(/databases/$(database)/documents/profiles/$(request.auth.uid)/circle/$(pair()[0]))
+          || exists(/databases/$(database)/documents/profiles/$(request.auth.uid)/circle/$(pair()[1]));
+      }
+      function validSummary(data) {
+        return data.lastText is string && data.lastText.size() > 0 && data.lastText.size() <= 140
+          && data.lastAt is int && data.seen is map;
+      }
+
+      allow get: if isMember();
+      allow list: if signedIn() && request.auth.uid in resource.data.members;
+      allow create: if isMember() && verified() && circleWithOther()
+        && pair()[0] < pair()[1]
+        && request.resource.data.keys().hasOnly(['members', 'lastText', 'lastFrom', 'lastAt', 'seen'])
+        && request.resource.data.members == pair()
+        && request.resource.data.lastFrom == request.auth.uid
+        && validSummary(request.resource.data)
+        && request.resource.data.seen.keys().hasOnly([request.auth.uid]);
+      allow update: if isMember()
+        && request.resource.data.keys().hasOnly(['members', 'lastText', 'lastFrom', 'lastAt', 'seen'])
+        && request.resource.data.members == resource.data.members
+        && validSummary(request.resource.data)
+        && request.resource.data.seen.diff(resource.data.seen).affectedKeys().hasOnly([request.auth.uid])
+        && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seen'])
+          || (request.resource.data.lastFrom == request.auth.uid && verified() && circleWithOther()));
+      allow delete: if isMember();
+
+      match /messages/{messageId} {
+        allow read: if isMember();
+        allow create: if isMember() && verified() && circleWithOther()
+          && existsAfter(/databases/$(database)/documents/chats/$(chatId))
+          && request.resource.data.keys().hasOnly(['from', 'text', 'createdAt'])
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000
+          && request.resource.data.createdAt is int;
+        allow delete: if isMember() && resource.data.from == request.auth.uid;
+      }
+    }
+
     // usernames/{lowercase name}: keeps usernames unique. Anyone may check if a name is taken.
     match /usernames/{name} {
       allow get: if true;
