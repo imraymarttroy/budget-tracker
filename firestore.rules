@@ -241,8 +241,9 @@ service cloud.firestore {
         || (signedIn() && exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid)));
       allow delete: if signedInAs(uid);
       allow create, update: if signedInAs(uid)
-        && request.resource.data.keys().hasOnly(['at'])
-        && request.resource.data.at is int;
+        && request.resource.data.keys().hasOnly(['at', 'state'])
+        && request.resource.data.at is int
+        && (!('state' in request.resource.data) || request.resource.data.state in ['online', 'idle', 'dnd']);
     }
 
     // chats/{a_b}: one conversation between two people in each other's circle.

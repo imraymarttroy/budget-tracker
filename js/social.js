@@ -291,39 +291,95 @@ window.SOC = (function () {
     if (blockedCache) delete blockedCache[uid];
   }
 
-  /* ---------- Online: presence/{uid} = { at }, refreshed every minute while the app is open ---------- */
+  /* ---------- Online: presence/{uid} = { at, state }, refreshed every minute while the app is open ----------
+     state: "online", "idle" (tab hidden or no activity for 5 minutes) or "dnd" (you picked Do not disturb).
+     Anyone whose last beat is older than ONLINE_WINDOW shows as "offline". */
 
   const ONLINE_WINDOW = 3 * 60 * 1000;
+  const IDLE_AFTER = 5 * 60 * 1000;
+  const STATUS_KEY = 'pbh.status';
   let presenceTimer = null;
+  let lastActive = Date.now();
+  let sentState = null;
+  let stateField = true;   /* false once the rules refuse the "state" field (older rules) */
   const presenceDoc = function (uid) { return F().doc(db(), 'presence', uid); };
+
+  function myStatusChoice() {
+    try { return localStorage.getItem(STATUS_KEY) === 'dnd' ? 'dnd' : 'auto'; } catch (e) { return 'auto'; }
+  }
+  function myState() {
+    if (myStatusChoice() === 'dnd') return 'dnd';
+    if (document.visibilityState !== 'visible' || Date.now() - lastActive > IDLE_AFTER) return 'idle';
+    return 'online';
+  }
+  function beat() {
+    if (!me()) return;
+    const state = myState();
+    sentState = state;
+    const write = stateField ? { at: Date.now(), state: state } : { at: Date.now() };
+    F().setDoc(presenceDoc(me()), write).catch(function () {
+      if (!stateField) return;
+      stateField = false;
+      F().setDoc(presenceDoc(me()), { at: Date.now() }).catch(function () {});
+    });
+  }
+  function onActivity() {
+    const wasIdle = Date.now() - lastActive > IDLE_AFTER;
+    lastActive = Date.now();
+    if (wasIdle && sentState === 'idle') beat();
+  }
+  function onVisibility() {
+    if (document.visibilityState === 'visible') lastActive = Date.now();
+    if (myState() !== sentState) beat();
+  }
+  const ACTIVITY = ['pointerdown', 'keydown', 'scroll', 'touchstart', 'mousemove'];
 
   function startPresence() {
     stopPresence();
     if (!me()) return;
-    function beat() {
-      if (document.visibilityState === 'visible' && me()) F().setDoc(presenceDoc(me()), { at: Date.now() }).catch(function () {});
-    }
+    lastActive = Date.now();
     beat();
     presenceTimer = setInterval(beat, 60 * 1000);
-    document.addEventListener('visibilitychange', beat);
-    startPresence.beat = beat;
+    document.addEventListener('visibilitychange', onVisibility);
+    ACTIVITY.forEach(function (t) { window.addEventListener(t, onActivity, { passive: true }); });
   }
   function stopPresence() {
     if (presenceTimer) clearInterval(presenceTimer);
     presenceTimer = null;
-    if (startPresence.beat) document.removeEventListener('visibilitychange', startPresence.beat);
+    sentState = null;
+    document.removeEventListener('visibilitychange', onVisibility);
+    ACTIVITY.forEach(function (t) { window.removeEventListener(t, onActivity); });
+  }
+  /** "auto" (Online, goes Idle when away) or "dnd". Takes effect right away. */
+  function setStatusChoice(choice) {
+    try { localStorage.setItem(STATUS_KEY, choice === 'dnd' ? 'dnd' : 'auto'); } catch (e) { /* storage off */ }
+    beat();
+  }
+  function myStatus() { return me() ? myState() : 'offline'; }
+
+  function statusFrom(data, now) {
+    if (!data || now - (data.at || 0) >= ONLINE_WINDOW) return 'offline';
+    return ['online', 'idle', 'dnd'].indexOf(data.state) !== -1 ? data.state : 'online';
   }
 
-  /** People in your circle who were active in the last few minutes. */
+  /** { uid: "online" | "idle" | "dnd" | "offline" } for the given people. */
+  async function presenceOf(uids) {
+    const now = Date.now();
+    const out = {};
+    await Promise.all(uids.map(function (uid) {
+      if (uid === me()) { out[uid] = myStatus(); return null; }
+      return F().getDoc(presenceDoc(uid)).then(function (snap) {
+        out[uid] = statusFrom(snap.exists() ? snap.data() : null, now);
+      }).catch(function () { out[uid] = 'offline'; });
+    }));
+    return out;
+  }
+
+  /** People in your circle who are not offline. */
   async function onlineCircle() {
     const people = await circleMembers();
-    const now = Date.now();
-    const checks = await Promise.all(people.map(function (p) {
-      return F().getDoc(presenceDoc(p.id)).then(function (snap) {
-        return snap.exists() && now - (snap.data().at || 0) < ONLINE_WINDOW ? p : null;
-      }).catch(function () { return null; });
-    }));
-    return checks.filter(Boolean);
+    const status = await presenceOf(people.map(function (p) { return p.id; }));
+    return people.filter(function (p) { return status[p.id] !== 'offline'; });
   }
 
   /** "self", "circle", "sent" (you asked them), "received" (they asked you) or "none". */
@@ -875,6 +931,7 @@ window.SOC = (function () {
     deleteEverything: deleteEverything,
     blockedList: blockedList, blockPerson: blockPerson, unblockPerson: unblockPerson,
     startPresence: startPresence, stopPresence: stopPresence, onlineCircle: onlineCircle,
+    presenceOf: presenceOf, setStatusChoice: setStatusChoice, myStatusChoice: myStatusChoice, myStatus: myStatus,
     loadCircleInfo: loadCircleInfo, ensureDefaultCircleInfo: ensureDefaultCircleInfo, saveCircleInfo: saveCircleInfo, publishSavings: publishSavings, savingsTotal: savingsTotal,
     NOTE_MAX: NOTE_MAX, NOTE_GIF_MAX: NOTE_GIF_MAX, loadNote: loadNote, saveNote: saveNote, deleteNote: deleteNote,
     loadCover: loadCover, EDU_MAX: EDU_MAX, WORK_MAX: WORK_MAX, COVER_MAX: COVER_MAX, saveProfileExtras: saveProfileExtras, loadProfile: loadProfile, feedPosts: feedPosts,

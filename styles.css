@@ -1842,3 +1842,52 @@ button.note-bubble:hover { transform: translateY(-1px); }
   .chat-dock:has(.chat-pop:not([hidden])) .chat-side { display: none; }
   body:has(.chat-pop:not([hidden])) { overflow: hidden; }
 }
+
+/* ---------- Your circle: notes no longer push pictures down ---------- */
+/* Every column is lined up at the bottom, so a tall GIF note grows upward and the pictures stay in one row. */
+.pf-circle-people { align-items: end; }
+.pf-circle-people .note-slot { height: auto; min-height: 2.125rem; }
+
+/* ---------- Online status dot (Discord style) ---------- */
+.avatar-status { position: relative; display: inline-flex; flex: none; width: var(--size); height: var(--size); }
+.avatar-status > .avatar { display: flex; }
+.status-dot {
+  --dot: max(0.75rem, calc(var(--size, 2.5rem) * 0.3));
+  position: absolute; right: -1px; bottom: -1px;
+  width: var(--dot); height: var(--dot); border-radius: 50%;
+  border: 3px solid var(--surface); box-sizing: border-box;
+  background: #80848e;
+}
+.status-dot.online { background: #23a55a; }
+.status-dot.dnd { background: #f23f43; }
+.status-dot.dnd::after {
+  content: ''; position: absolute; left: 22%; right: 22%; top: 50%; height: 22%; min-height: 2px;
+  transform: translateY(-50%); border-radius: 2px; background: var(--surface);
+}
+.status-dot.offline { background: #80848e; }
+.status-dot.offline::after {
+  content: ''; position: absolute; inset: 27%; border-radius: 50%; background: var(--surface);
+}
+/* Idle: a yellow half moon. */
+.status-dot.idle { background: #f0b232; }
+.status-dot.idle::after {
+  content: ''; position: absolute; top: -8%; left: -8%; width: 62%; height: 62%; border-radius: 50%; background: var(--surface);
+}
+.sidebar-me .status-dot { border-color: var(--surface); }
+.sidebar-me:hover .status-dot, .sidebar-me[aria-current="page"] .status-dot { border-color: var(--wash); }
+.sidebar-me:hover .status-dot.idle::after, .sidebar-me[aria-current="page"] .status-dot.idle::after,
+.sidebar-me:hover .status-dot::after, .sidebar-me[aria-current="page"] .status-dot::after { background: var(--wash); }
+@media (forced-colors: active) { .status-dot { forced-color-adjust: none; } }
+
+/* Settings: pick your status */
+.status-choice { margin: 0 0 1.5rem; padding: 0; border: 0; display: grid; gap: 0.5rem; }
+.status-choice legend { padding: 0; margin-bottom: 0.5rem; font-weight: 700; }
+.status-option {
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 0.875rem;
+  border: 1px solid var(--line); border-radius: 12px; cursor: pointer;
+}
+.status-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.status-option .status-dot { position: relative; right: auto; bottom: auto; --dot: 0.875rem; border: 0; flex: none; }
+.status-option .status-dot.dnd::after { background: var(--page, #fff); }
+.status-option > span:last-child { display: flex; flex-direction: column; }
+.status-subhead { font-size: 1rem; margin: 0 0 0.25rem; }

@@ -218,6 +218,34 @@
     return h('span', { class: 'avatar', style: style + ';font-size:' + (size * 0.38) + 'rem', 'aria-hidden': 'true' }, letters);
   }
 
+  /* ---------- Online status dot (Discord style) ---------- */
+
+  const STATUS_LABEL = { online: 'Online', idle: 'Idle', dnd: 'Do not disturb', offline: 'Offline' };
+  const statusDots = [];   /* [{ uid, dot }] still on the page */
+  let statusTimer = null;
+  function paintDot(dot, status) {
+    dot.className = 'status-dot ' + status;
+    dot.title = STATUS_LABEL[status];
+    dot.setAttribute('aria-label', STATUS_LABEL[status]);
+  }
+  function refreshStatusDots() {
+    for (let i = statusDots.length - 1; i >= 0; i--) if (!statusDots[i].dot.isConnected) statusDots.splice(i, 1);
+    if (!statusDots.length) { clearInterval(statusTimer); statusTimer = null; return; }
+    const uids = Array.from(new Set(statusDots.map(function (d) { return d.uid; })));
+    SOC.presenceOf(uids).then(function (map) {
+      statusDots.forEach(function (d) { paintDot(d.dot, map[d.uid] || 'offline'); });
+    }).catch(function () {});
+  }
+  let statusQueued = false;
+  /** An avatar with a status dot at the bottom right, kept up to date every 30 seconds. */
+  function avatarWithStatus(person, size) {
+    const dot = h('span', { class: 'status-dot offline', role: 'img', 'aria-label': 'Offline', title: 'Offline' });
+    statusDots.push({ uid: person.id, dot: dot });
+    if (!statusQueued) { statusQueued = true; setTimeout(function () { statusQueued = false; refreshStatusDots(); }, 0); }
+    if (!statusTimer) statusTimer = setInterval(refreshStatusDots, 30 * 1000);
+    return h('span', { class: 'avatar-status', style: '--size:' + size + 'rem' }, avatar(person, person.avatar, size), dot);
+  }
+
   /* ---------- Routing ---------- */
 
   function resolveView() {
@@ -1442,7 +1470,26 @@
       }).catch(function (error) { list.replaceChildren(h('p', { class: 'empty' }, error.message)); });
     }
     draw();
+    const choice = SOC.myStatusChoice();
+    function statusOption(value, label, hint, dotClass) {
+      const radio = h('input', { type: 'radio', name: 'my-status', value: value });
+      radio.checked = choice === value;
+      radio.addEventListener('change', function () {
+        SOC.setStatusChoice(value);
+        setTimeout(refreshStatusDots, 300);
+        toast(value === 'dnd' ? 'Status set to Do not disturb.' : 'Status set to Online.');
+      });
+      return h('label', { class: 'status-option' }, radio,
+        h('span', { class: 'status-dot ' + dotClass, 'aria-hidden': 'true' }),
+        h('span', null, h('strong', null, label), h('span', { class: 'small muted' }, hint)));
+    }
+    const statusBox = h('fieldset', { class: 'status-choice' },
+      h('legend', null, 'Your status'),
+      statusOption('auto', 'Online', 'Turns to Idle when you\u2019re away for 5 minutes', 'online'),
+      statusOption('dnd', 'Do not disturb', 'Your circle sees a red dot', 'dnd'));
     return h('div', null,
+      statusBox,
+      h('h3', { class: 'status-subhead' }, 'Blocked people'),
       h('p', { class: 'muted small', style: 'margin:0 0 0.75rem' }, 'People you block are removed from your circle, won\u2019t show up when you search, and can\u2019t send you a circle request.'),
       list);
   }
@@ -1616,7 +1663,7 @@
         h('a', { class: 'brand sidebar-brand', href: '#dashboard', 'aria-label': 'PassbookHub' }, logoMark('sidebar-mark'), h('span', { class: 'sidebar-word' }, 'PassbookHub')),
         collapseBtn),
       h('a', { class: 'sidebar-me', href: '#profile', title: 'Your profile', 'aria-current': current === 'profile' ? 'page' : null },
-        avatar(user, user.avatar, 2.25),
+        avatarWithStatus(user, 2.25),
         h('span', { class: 'sidebar-me-text' }, h('strong', null, user.name), h('span', { class: 'small muted' }, '@' + user.username))),
       h('nav', { 'aria-label': 'Main' },
         h('ul', { class: 'nav-list' },
@@ -2138,7 +2185,7 @@
           SOC.loadNote(p.id).then(function (note) {
             if (note) slot.replaceChildren(h('span', { class: 'note-bubble' + (note.gif ? ' has-gif' : ''), title: (note.text || 'GIF') + ' \u00b7 ' + timeAgo(note.at) }, noteContent(note)));
           }).catch(function () {});
-          return h('li', null, h('a', { href: '#u/' + p.username, title: p.name }, slot, avatar(p, p.avatar, 2.5), h('span', { class: 'small' }, p.name.split(' ')[0])));
+          return h('li', null, h('a', { href: '#u/' + p.username, title: p.name }, slot, avatarWithStatus(p, 2.5), h('span', { class: 'small' }, p.name.split(' ')[0])));
         })), people.length > 8 ? h('a', { class: 'small', href: '#circle' }, 'See all ' + people.length) : '');
       }).catch(function () { circleList.replaceChildren(h('p', { class: 'small muted' }, 'We could not load your circle.')); });
     }
@@ -2733,6 +2780,8 @@
       members.replaceChildren(people.length
         ? h('ul', { class: 'people' }, people.map(function (p) {
             const row = personRow(p, null);
+            const pic = row.querySelector('.person-link > .avatar');
+            if (pic) pic.replaceWith(avatarWithStatus(p, 2.75));
             row.appendChild(memberActions(p, row));
             return row;
           }))
