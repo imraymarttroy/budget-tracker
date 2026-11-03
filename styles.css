@@ -857,7 +857,8 @@ body.lang-open { overflow: hidden; }
 }
 .lang-region:hover { color: var(--accent); }
 .lang-region.active { text-decoration: underline; text-underline-offset: 3px; font-weight: 600; }
-.lang-list { columns: 4; column-gap: 1.5rem; overflow-y: auto; min-height: 0; padding-right: 0.25rem; }
+.lang-list { overflow-y: auto; min-height: 0; padding-right: 0.25rem; }
+.lang-cols { columns: 4; column-gap: 1.5rem; }
 .lang-option {
   display: block; width: 100%; padding: 0.2rem 0;
   border: 0; background: none; text-align: left; break-inside: avoid;
@@ -873,7 +874,7 @@ body.lang-open { overflow: hidden; }
   .lang-suggested, .lang-body { grid-template-columns: 1fr; gap: 0.5rem; }
   .lang-suggested-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lang-regions { flex-direction: row; gap: 1rem; overflow-x: auto; white-space: nowrap; padding-bottom: 0.25rem; }
-  .lang-list { columns: 2; }
+  .lang-cols { columns: 2; }
 }
 
 @media (max-width: 900px) {
