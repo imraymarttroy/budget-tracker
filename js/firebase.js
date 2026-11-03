@@ -23,13 +23,24 @@ try {
     import(base + 'firebase-firestore.js')
   ]);
   const app = appMod.initializeApp(config);
-  window.FB = { app: app, base: base, auth: authMod.getAuth(app), db: fsMod.getFirestore(app), A: authMod, F: fsMod };
+  /* App Check first, so every Firestore and Auth request carries a token. */
+  let appCheck = null;
+  const siteKey = window.BudgetConfig.appCheckSiteKey;
+  if (siteKey) {
+    try {
+      const ac = await import(base + 'firebase-app-check.js');
+      appCheck = ac.initializeAppCheck(app, { provider: new ac.ReCaptchaEnterpriseProvider(siteKey), isTokenAutoRefreshEnabled: true });
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  window.FB = { app: app, base: base, appCheck: appCheck, auth: authMod.getAuth(app), db: fsMod.getFirestore(app), A: authMod, F: fsMod };
   await import('./i18n.js?v=2');
   await import('./banks.js?v=1');
   await import('./quotes.js?v=2');
-  await import('./core.js?v=12');
+  await import('./core.js?v=13');
   await import('./social.js?v=19');
-  await import('./app.js?v=34');
+  await import('./app.js?v=35');
 } catch (error) {
   console.error(error);
   fail('PassbookHub could not start. Check your internet connection and reload the page.');

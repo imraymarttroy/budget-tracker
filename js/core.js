@@ -30,6 +30,14 @@ window.BT = (function () {
     }
   }
 
+  /** Sign-in needs the 6-digit code from an authenticator app. Carries what's needed to finish. */
+  class MfaRequired extends UserError {
+    constructor(resolver) {
+      super('Enter the 6-digit code from your authenticator app.');
+      this.resolver = resolver;
+    }
+  }
+
   /* ---------- Firebase plumbing ---------- */
 
   const A = function () { return window.FB.A; };
@@ -67,6 +75,10 @@ window.BT = (function () {
   const cache = { authUser: null, profile: null, txs: [], loadError: false };
   let signUpInProgress = false;
   let redirectError = null;
+
+  /* A Google sign-in that came back from a redirect and still needs the authenticator code. Read once. */
+  let pendingMfa = null;
+  function takePendingMfa() { const m = pendingMfa; pendingMfa = null; return m; }
 
   /** A sign-in problem from coming back after a Google or Facebook redirect. Read once. */
   function takeRedirectError() { const message = redirectError; redirectError = null; return message; }
@@ -133,6 +145,11 @@ window.BT = (function () {
   /** Calls back whenever someone signs in or out, after their data has loaded. */
   function onSessionChange(callback) {
     A().getRedirectResult(window.FB.auth).catch(function (error) {
+      if (error && error.code === 'auth/multi-factor-auth-required') {
+        pendingMfa = new MfaRequired(A().getMultiFactorResolver(window.FB.auth, error));
+        callback();
+        return;
+      }
       const friendlyError = socialError(error);
       if (friendlyError) { redirectError = friendlyError.message; callback(); }
     });
@@ -309,6 +326,7 @@ window.BT = (function () {
         birthday: input.birthday,
         username: input.username,
         profileDone: false,
+        needsMfa: true,
         avatar: null,
         bio: '',
         currency: guessCurrency(),
@@ -382,6 +400,7 @@ window.BT = (function () {
     try {
       await A().signInWithPopup(window.FB.auth, provider);
     } catch (error) {
+      if (error.code === 'auth/multi-factor-auth-required') throw new MfaRequired(A().getMultiFactorResolver(window.FB.auth, error));
       if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
         await A().signInWithRedirect(window.FB.auth, provider);
         return;
@@ -414,6 +433,7 @@ window.BT = (function () {
       birthday: input.birthday,
       username: input.username,
       profileDone: false,
+      needsMfa: true,
       avatar: null,
       bio: '',
       currency: guessCurrency(),
@@ -523,6 +543,7 @@ window.BT = (function () {
     try {
       await A().signInWithEmailAndPassword(window.FB.auth, email, password);
     } catch (error) {
+      if (error.code === 'auth/multi-factor-auth-required') throw new MfaRequired(A().getMultiFactorResolver(window.FB.auth, error));
       if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email', 'auth/invalid-login-credentials'].indexOf(error.code) !== -1) {
         if (!known) throw new FieldError({ email: 'No account uses that email.' });
         throw new FieldError({ password: 'Incorrect password.' });
@@ -532,6 +553,77 @@ window.BT = (function () {
   }
 
   function signOut() { return A().signOut(window.FB.auth); }
+
+  /* ---------- Two-step verification (authenticator app, TOTP) ---------- */
+
+  function mfaError(error) {
+    const code = (error && error.code) || '';
+    if (code === 'auth/invalid-verification-code') return new FieldError({ otp: 'That code isn\u2019t right. Check your authenticator app and try again.' });
+    if (code === 'auth/code-expired' || code === 'auth/totp-challenge-timeout') return new FieldError({ otp: 'That code expired. Enter the newest one.' });
+    if (code === 'auth/requires-recent-login') return new UserError('For your security, sign out and sign in again, then try once more.');
+    if (code === 'auth/operation-not-allowed' || code === 'auth/admin-restricted-operation') return new UserError('Two-step verification isn\u2019t switched on for PassbookHub yet. Please try again later.');
+    if (code === 'auth/unverified-email') return new UserError('Verify your email first, then set up two-step verification.');
+    if (code === 'auth/too-many-requests') return new UserError('Too many tries. Wait a few minutes and try again.');
+    return friendly(error);
+  }
+
+  /** Finishes a sign-in that asked for the authenticator code. */
+  async function resolveMfa(pending, code) {
+    const clean = String(code || '').replace(/\s+/g, '');
+    if (!/^[0-9]{6}$/.test(clean)) throw new FieldError({ otp: 'Enter the 6-digit code.' });
+    const resolver = pending.resolver;
+    const hint = resolver.hints.find(function (h) { return h.factorId === A().TotpMultiFactorGenerator.FACTOR_ID; }) || resolver.hints[0];
+    try {
+      const assertion = A().TotpMultiFactorGenerator.assertionForSignIn(hint.uid, clean);
+      await resolver.resolveSignIn(assertion);
+    } catch (error) {
+      throw mfaError(error);
+    }
+  }
+
+  function totpFactor() {
+    const user = window.FB.auth.currentUser;
+    if (!user) return null;
+    return A().multiFactor(user).enrolledFactors.find(function (f) { return f.factorId === 'totp'; }) || null;
+  }
+  function mfaOn() { return !!totpFactor(); }
+
+  /** Step 1 of turning it on: a new secret, shown as a QR code and a key. */
+  async function startTotp() {
+    const user = window.FB.auth.currentUser;
+    try {
+      const session = await A().multiFactor(user).getSession();
+      const secret = await A().TotpMultiFactorGenerator.generateSecret(session);
+      const label = accountEmail(user) || (cache.profile && cache.profile.username) || 'PassbookHub';
+      return { secret: secret, key: secret.secretKey, url: secret.generateQrCodeUrl(label, 'PassbookHub') };
+    } catch (error) {
+      throw mfaError(error);
+    }
+  }
+
+  /** Step 2: check the first code and switch it on. */
+  async function finishTotp(started, code) {
+    const clean = String(code || '').replace(/\s+/g, '');
+    if (!/^[0-9]{6}$/.test(clean)) throw new FieldError({ otp: 'Enter the 6-digit code.' });
+    const user = window.FB.auth.currentUser;
+    try {
+      const assertion = A().TotpMultiFactorGenerator.assertionForEnrollment(started.secret, clean);
+      await A().multiFactor(user).enroll(assertion, 'Authenticator app');
+    } catch (error) {
+      throw mfaError(error);
+    }
+    if (cache.profile && cache.profile.needsMfa) await updateUser(user.uid, { needsMfa: false }).catch(function () {});
+  }
+
+  async function disableTotp() {
+    const factor = totpFactor();
+    if (!factor) return;
+    try {
+      await A().multiFactor(window.FB.auth.currentUser).unenroll(factor);
+    } catch (error) {
+      throw mfaError(error);
+    }
+  }
 
   /* ---------- Verification and password reset emails ---------- */
 
@@ -677,7 +769,8 @@ window.BT = (function () {
   return {
     BUCKETS: BUCKETS, TYPE_LABELS: TYPE_LABELS, CURRENCIES: CURRENCIES, currencyLabel: currencyLabel, flagUrl: flagUrl,
     RESEND_COOLDOWN_MS: RESEND_COOLDOWN_MS, MIN_AGE: MIN_AGE,
-    UserError: UserError, FieldError: FieldError,
+    UserError: UserError, FieldError: FieldError, MfaRequired: MfaRequired, takePendingMfa: takePendingMfa,
+    resolveMfa: resolveMfa, mfaOn: mfaOn, startTotp: startTotp, finishTotp: finishTotp, disableTotp: disableTotp,
     today: today, parseDate: parseDate, ageOn: ageOn, monthOf: monthOf, addMonths: addMonths,
     monthLabel: monthLabel, shortDate: shortDate, longDate: longDate, validEmail: validEmail,
     onSessionChange: onSessionChange, sessionState: sessionState, currentUser: currentUser, reloadSession: reloadSession,
