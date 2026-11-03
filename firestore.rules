@@ -8,6 +8,21 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    // trust/{owner}: the one person the owner shares their dashboard with (accepted, still in their circle).
+    function trustOf(owner) {
+      return get(/databases/$(database)/documents/trust/$(owner)).data;
+    }
+    function trustedBy(owner) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/trust/$(owner))
+        && trustOf(owner).member == request.auth.uid
+        && trustOf(owner).status == 'accepted'
+        && exists(/databases/$(database)/documents/profiles/$(owner)/circle/$(request.auth.uid));
+    }
+    function trustedEditorOf(owner) {
+      return trustedBy(owner) && trustOf(owner).role == 'edit';
+    }
+
     // users/{uid}: the profile.
     match /users/{uid} {
       allow read, delete: if signedInAs(uid);
@@ -19,10 +34,12 @@ service cloud.firestore {
             || (request.resource.data.avatar is string && request.resource.data.avatar.size() < 300000))
         && (request.method == 'create' || request.resource.data.username == resource.data.username);
 
-      // users/{uid}/tx/{id}: income and spending entries.
+      // users/{uid}/tx/{id}: income and spending entries. The owner's trusted person may read
+      // them, and also add, edit and delete them when the owner chose "Can edit".
       match /tx/{txId} {
-        allow read, delete: if signedInAs(uid);
-        allow create, update: if signedInAs(uid)
+        allow read: if signedInAs(uid) || trustedBy(uid);
+        allow delete: if signedInAs(uid) || trustedEditorOf(uid);
+        allow create, update: if (signedInAs(uid) || trustedEditorOf(uid))
           && request.resource.data.keys().hasOnly(['type', 'desc', 'cents', 'date', 'createdAt'])
           && request.resource.data.type in ['income', 'needs', 'wants', 'savings']
           && request.resource.data.desc is string && request.resource.data.desc.size() <= 80
@@ -33,6 +50,30 @@ service cloud.firestore {
 
     function signedIn() {
       return request.auth != null;
+    }
+
+    match /trust/{owner} {
+      function validShare(data) {
+        return data.keys().hasOnly(['member', 'role', 'status', 'currency', 'createdAt'])
+          && data.member is string && data.member != owner
+          && data.role in ['view', 'edit']
+          && data.status in ['pending', 'accepted']
+          && data.currency is string && data.currency.size() <= 5
+          && data.createdAt is int
+          && exists(/databases/$(database)/documents/profiles/$(owner)/circle/$(data.member));
+      }
+      allow read: if signedInAs(owner) || (signedIn() && resource.data.member == request.auth.uid);
+      // The owner invites (always "pending") or changes the role or currency. Only the invited person can accept.
+      allow create: if signedInAs(owner) && verified() && validShare(request.resource.data)
+        && request.resource.data.status == 'pending';
+      allow update: if (signedInAs(owner) && validShare(request.resource.data)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'currency'])
+            || (request.resource.data.status == 'pending' && verified())))
+        || (signedIn() && resource.data.member == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && resource.data.status == 'pending' && request.resource.data.status == 'accepted');
+      // The owner removes them, or they decline or leave.
+      allow delete: if signedInAs(owner) || (signedIn() && resource.data.member == request.auth.uid);
     }
 
     function verified() {
@@ -101,7 +142,12 @@ service cloud.firestore {
             && ((request.resource.data.type == 'request' && noteId == 'request_' + request.auth.uid
                   && existsAfter(/databases/$(database)/documents/profiles/$(uid)/requests/$(request.auth.uid)))
               || (request.resource.data.type == 'accepted' && noteId == 'accepted_' + request.auth.uid
-                  && existsAfter(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid))));
+                  && existsAfter(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid)))
+              || (request.resource.data.type == 'trust' && noteId == 'trust_' + request.auth.uid
+                  && getAfter(/databases/$(database)/documents/trust/$(request.auth.uid)).data.member == uid)
+              || (request.resource.data.type == 'trusted' && noteId == 'trusted_' + request.auth.uid
+                  && getAfter(/databases/$(database)/documents/trust/$(uid)).data.member == request.auth.uid
+                  && getAfter(/databases/$(database)/documents/trust/$(uid)).data.status == 'accepted'));
         }
         allow read: if signedInAs(uid);
         allow create: if validNote();

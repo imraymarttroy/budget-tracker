@@ -71,7 +71,22 @@ window.BT = (function () {
   /** A sign-in problem from coming back after a Google or Facebook redirect. Read once. */
   function takeRedirectError() { const message = redirectError; redirectError = null; return message; }
 
+  /* Your entries stay live, so changes made by your trusted person show up right away. */
+  let txStop = null;
+  const txListeners = [];
+  function onTxChange(fn) { txListeners.push(fn); }
+  function watchOwnTx(owner) {
+    if (txStop) { txStop(); txStop = null; }
+    if (!owner) return;
+    txStop = F().onSnapshot(txCol(owner), function (snap) {
+      if (!cache.authUser || cache.authUser.uid !== owner) return;
+      cache.txs = snap.docs.map(function (d) { return Object.assign({}, d.data(), { id: d.id }); });
+      txListeners.forEach(function (fn) { fn(); });
+    }, function (error) { console.error(error); });
+  }
+
   async function loadSession(authUser) {
+    watchOwnTx(null);
     cache.authUser = authUser;
     cache.profile = null;
     cache.txs = [];
@@ -84,6 +99,7 @@ window.BT = (function () {
       saveLoginLookups(authUser, cache.profile);
       const list = await F().getDocs(txCol(authUser.uid));
       cache.txs = list.docs.map(function (d) { return Object.assign({}, d.data(), { id: d.id }); });
+      watchOwnTx(authUser.uid);
     } catch (error) {
       console.error(error);
       cache.loadError = true;
@@ -574,7 +590,7 @@ window.BT = (function () {
     const ref = F().doc(txCol(uid()));
     const record = Object.assign({ createdAt: Date.now() }, tx, { id: ref.id });
     try { await F().setDoc(ref, stripId(record)); } catch (error) { throw friendly(error); }
-    cache.txs.push(record);
+    if (!cache.txs.some(function (t) { return t.id === record.id; })) cache.txs.push(record);
     return record;
   }
 
@@ -587,15 +603,17 @@ window.BT = (function () {
   }
 
   async function deleteTx(id) {
-    const index = cache.txs.findIndex(function (t) { return t.id === id; });
-    if (index === -1) return null;
+    const record = cache.txs.find(function (t) { return t.id === id; });
+    if (!record) return null;
     try { await F().deleteDoc(F().doc(txCol(uid()), id)); } catch (error) { throw friendly(error); }
-    return cache.txs.splice(index, 1)[0];
+    const index = cache.txs.findIndex(function (t) { return t.id === id; });
+    if (index !== -1) cache.txs.splice(index, 1);
+    return record;
   }
 
   async function restoreTx(tx) {
     try { await F().setDoc(F().doc(txCol(uid()), tx.id), stripId(tx)); } catch (error) { throw friendly(error); }
-    cache.txs.push(tx);
+    if (!cache.txs.some(function (t) { return t.id === tx.id; })) cache.txs.push(tx);
   }
 
   /** Newest first, using entry order to break ties within a day. */
@@ -669,7 +687,7 @@ window.BT = (function () {
     socialSignIn: socialSignIn, socialLabel: socialLabel, socialName: socialName, takeRedirectError: takeRedirectError,
     validateSocialProfile: validateSocialProfile, completeSocialProfile: completeSocialProfile,
     sendVerification: sendVerification, refreshVerified: refreshVerified, sendPasswordReset: sendPasswordReset, lastEmailSent: lastEmailSent,
-    listTx: listTx, addTx: addTx, updateTx: updateTx, deleteTx: deleteTx, restoreTx: restoreTx, monthTx: monthTx,
+    onTxChange: onTxChange, listTx: listTx, addTx: addTx, updateTx: updateTx, deleteTx: deleteTx, restoreTx: restoreTx, monthTx: monthTx,
     summarize: summarize, bucketStatus: bucketStatus, formatMoney: formatMoney, toCsv: toCsv
   };
 })();

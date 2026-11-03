@@ -230,13 +230,14 @@
     if (!user.profileDone) return 'setup';
     if (/^u\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'person';
     if (/^chat\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'chat';
+    if (/^d\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'shared';
     if (wanted === 'messages') return 'chat';
     if (wanted === 'notifications') return 'alerts';
     return ['profile', 'circle', 'alerts', 'settings'].indexOf(wanted) !== -1 ? wanted : 'dashboard';
   }
 
   /* Views that show the sidebar. Only the signed-in owner of the account ever sees it. */
-  const SHELL_VIEWS = ['dashboard', 'profile', 'person', 'circle', 'alerts', 'settings'];
+  const SHELL_VIEWS = ['dashboard', 'shared', 'profile', 'person', 'circle', 'alerts', 'settings'];
 
   const VIEWS = {
     signin: { title: 'Sign in', render: viewAuth },
@@ -247,6 +248,7 @@
     dashboard: { title: 'Dashboard', render: viewDashboard },
     profile: { title: 'Profile', render: viewTimeline },
     person: { title: 'Profile', render: viewPerson },
+    shared: { title: 'Dashboard', render: viewShared },
     circle: { title: 'Circle', render: viewCircle },
     alerts: { title: 'Alerts', render: viewNotifications },
     settings: { title: 'Settings', render: viewSettings },
@@ -260,15 +262,16 @@
     if (view === 'chat') {
       /* Messages live only in the floating chat now: #messages opens the picker, #chat/username opens that person. */
       const username = location.hash.indexOf('#chat/') === 0 ? location.hash.slice(6) : null;
-      const back = SHELL_VIEWS.indexOf(state.view) !== -1 ? state.view : 'dashboard';
-      history.replaceState(null, '', back === 'person' ? location.pathname + '#dashboard' : '#' + back);
-      view = back === 'person' ? 'dashboard' : back;
+      const back = SHELL_VIEWS.indexOf(state.view) !== -1 && state.view !== 'person' && state.view !== 'shared' ? state.view : 'dashboard';
+      history.replaceState(null, '', '#' + back);
+      view = back;
       setTimeout(function () { if (username) dock.open(username); else dock.openPicker(); }, 0);
     }
-    if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); SOC.stopWatchingChats(); }
+    if (!BT.currentUser() && socialFor) { socialFor = null; SOC.stopWatching(); SOC.stopWatchingChats(); SOC.stopWatchingTrust(); }
     if (state.cleanup) { state.cleanup(); state.cleanup = null; }
-    if (view === 'person') {
-      /* keep #u/username as it is */
+    state.onTrustChange = null;
+    if (view === 'person' || view === 'shared') {
+      /* keep #u/username and #d/username as they are */
     } else if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
     const changed = view !== state.view;
     state.view = view;
@@ -1064,6 +1067,29 @@
     SOC.ensureProfile(user).catch(function (e) { console.error(e); });
     SOC.watchNotifications();
     SOC.watchChats();
+    SOC.watchTrust();
+  }
+
+  /** "Ana's dashboard" links for the dashboards shared with you. */
+  function sharedNav(view) {
+    const holder = h('li', { class: 'shared-nav' });
+    function draw() {
+      const shares = SOC.trustedMe().filter(function (t) { return t.status === 'accepted'; });
+      holder.hidden = !shares.length;
+      const ul = h('ul', { class: 'nav-list' });
+      holder.replaceChildren(ul);
+      shares.forEach(function (t) {
+        SOC.getProfile(t.owner).then(function (p) {
+          if (!p) return;
+          const here = view === 'shared' && location.hash.slice(3).toLowerCase() === p.username.toLowerCase();
+          ul.appendChild(h('li', null, h('a', { class: 'nav-item', href: '#d/' + p.username, 'aria-current': here ? 'page' : null, title: p.name + '\u2019s dashboard (shared with you)' },
+            avatar(p, p.avatar, 1.25), h('span', { class: 'nav-shared-name' }, p.name.split(' ')[0] + '\u2019s dashboard'))));
+        }).catch(function () {});
+      });
+    }
+    draw();
+    trustWatchers.push(function () { if (!holder.isConnected) return false; draw(); });
+    return holder;
   }
 
   function shell(view, content) {
@@ -1090,6 +1116,7 @@
         h('ul', { class: 'nav-list' },
           item('dashboard', '#dashboard', 'Dashboard',
             h('span', { class: 'nav-pin', title: 'Private: only you can see your dashboard' }, icon('pin'), h('span', { class: 'vh' }, '(private)'))),
+          sharedNav(view),
           item('profile', '#profile', 'Profile'),
           item('circle', '#circle', 'Circle'),
           h('li', null, h('button', {
@@ -1101,6 +1128,7 @@
               socialFor = null;
               SOC.stopWatching();
               SOC.stopWatchingChats();
+              SOC.stopWatchingTrust();
               location.hash = '#signin';
               BT.signOut();
             }
@@ -2504,11 +2532,37 @@
         SOC.getProfile(note.from).then(function (person) {
           if (!person) { li.remove(); return; }
           const link = h('a', { href: '#u/' + person.username }, h('strong', null, person.name));
+          const share = note.type === 'trust' ? SOC.trustFrom(person.id) : null;
           const text = note.type === 'request'
             ? h('p', null, link, ' wants to add you to their circle.')
+            : note.type === 'trust'
+            ? h('p', null, link, ' invited you as their trusted person. You\u2019ll be able to ',
+                h('strong', null, share && share.role === 'edit' ? 'view and edit' : 'view'), ' their dashboard. Nobody else in their circle can see it.')
+            : note.type === 'trusted'
+            ? h('p', null, link, ' accepted. They can now see your dashboard.')
             : h('p', null, link, ' accepted your circle request.');
           let actions = null;
-          if (note.type === 'request') {
+          if (note.type === 'trust' && (!share || share.status !== 'pending')) {
+            /* The invite was cancelled, replaced or already handled. */
+            if (!share) SOC.dismissNotification(note.id).catch(function () {});
+            li.remove();
+            return;
+          }
+          if (note.type === 'trust') {
+            const accept = h('button', { type: 'button', class: 'btn primary' }, 'Accept');
+            const decline = h('button', { type: 'button', class: 'btn' }, 'Decline');
+            accept.addEventListener('click', async function () {
+              accept.disabled = decline.disabled = true;
+              try { await SOC.acceptTrust(person.id); toast('You can now see ' + person.name.split(' ')[0] + '\u2019s dashboard.'); location.hash = '#d/' + person.username; }
+              catch (error) { accept.disabled = decline.disabled = false; toast(error.message); }
+            });
+            decline.addEventListener('click', async function () {
+              accept.disabled = decline.disabled = true;
+              try { await SOC.leaveTrust(person.id); toast('Invite declined.'); }
+              catch (error) { accept.disabled = decline.disabled = false; toast(error.message); }
+            });
+            actions = h('div', { class: 'row' }, accept, decline);
+          } else if (note.type === 'request') {
             const accept = h('button', { type: 'button', class: 'btn primary' }, 'Accept');
             const decline = h('button', { type: 'button', class: 'btn' }, 'Decline');
             accept.addEventListener('click', async function () {
@@ -2538,6 +2592,7 @@
     }
 
     draw(SOC.notifications());
+    trustWatchers.push(function () { if (!list.isConnected) return false; draw(SOC.notifications()); });
     setTimeout(function () { SOC.markAllRead().catch(function () {}); }, 1500);
     return h('div', { class: 'wide' },
       h('h1', { style: 'margin-bottom:1.25rem' }, 'Alerts'),
@@ -2547,9 +2602,20 @@
 
   /* ---------- Dashboard ---------- */
 
-  function viewDashboard() {
+  /** Your own budget, read and written through BT. */
+  function myBook() {
     const user = BT.currentUser();
-    const money = function (cents) { return BT.formatMoney(cents, user.currency); };
+    return {
+      mine: true, canEdit: true, owner: user, currency: user.currency,
+      list: BT.listTx, month: BT.monthTx,
+      add: BT.addTx, update: BT.updateTx, remove: BT.deleteTx, restore: BT.restoreTx
+    };
+  }
+
+  function viewDashboard(_, given) {
+    const book = given && given.list ? given : myBook();
+    const user = book.owner;
+    const money = function (cents) { return BT.formatMoney(cents, book.currency); };
     const monthHeading = h('h2', { 'aria-live': 'polite' });
     const thisMonth = h('button', { type: 'button', class: 'link', onclick: function () { setMonth(BT.monthOf(BT.today())); } }, 'This month');
     const summary = h('div');
@@ -2596,7 +2662,7 @@
       h('div', null, segments, hint),
       h('div', { class: 'tx-fields' },
         field({ name: 'desc', label: 'Description', wrapClass: 'span-all', attrs: { maxlength: 80, autocomplete: 'off' } }),
-        field({ name: 'amount', label: 'Amount (' + user.currency + ')', type: 'number', attrs: { inputmode: 'decimal', step: '0.01', min: '0' } }),
+        field({ name: 'amount', label: 'Amount (' + book.currency + ')', type: 'number', attrs: { inputmode: 'decimal', step: '0.01', min: '0' } }),
         field({ name: 'date', label: 'Date', type: 'date' })),
       formError(),
       h('div', { class: 'tx-actions' }, submitButton, cancelButton));
@@ -2628,10 +2694,10 @@
       submitButton.disabled = true;
       try {
         if (state.editingId) {
-          await BT.updateTx(state.editingId, entry);
+          await book.update(state.editingId, entry);
           toast('Entry updated.');
         } else {
-          await BT.addTx(entry);
+          await book.add(entry);
           const label = BT.TYPE_LABELS[entry.type];
           toast(label + ' entry added' + (BT.monthOf(date) !== state.month ? ' to ' + BT.monthLabel(BT.monthOf(date)) : '') + '.');
         }
@@ -2684,7 +2750,7 @@
     async function removeEntry(tx) {
       let removed;
       try {
-        removed = await BT.deleteTx(tx.id);
+        removed = await book.remove(tx.id);
       } catch (error) {
         toast(error instanceof BT.UserError ? error.message : 'We could not delete this entry.');
         return;
@@ -2695,7 +2761,7 @@
       toast('Entry deleted.', {
         label: 'Undo',
         run: function () {
-          BT.restoreTx(removed).then(function () {
+          book.restore(removed).then(function () {
             if (state.refreshDashboard) state.refreshDashboard();
           }).catch(function (error) {
             toast(error instanceof BT.UserError ? error.message : 'We could not restore this entry.');
@@ -2745,7 +2811,9 @@
     function drawSummary(transactions) {
       const data = BT.summarize(transactions);
       const overIncome = data.left < 0;
-      const prompt = data.income === 0
+      const prompt = data.income === 0 && !book.canEdit
+        ? h('div', { class: 'prompt' }, h('p', null, 'No income added for ' + BT.monthLabel(state.month) + ' yet.'))
+        : data.income === 0
         ? h('div', { class: 'prompt' },
             h('p', null, 'Add your take-home income for ' + BT.monthLabel(state.month) + ' to see your 50/30/20 targets.'),
             h('div', { class: 'row' },
@@ -2759,7 +2827,7 @@
                   form.elements.desc.focus();
                 }
               }, 'Add income'),
-              h('span', { class: 'small muted' }, 'Amounts are in ' + user.currency + '. ', h('a', { href: '#settings' }, 'Change currency'))))
+              h('span', { class: 'small muted' }, 'Amounts are in ' + book.currency + '. ', book.mine ? h('a', { href: '#settings' }, 'Change currency') : null)))
         : null;
 
       summary.replaceChildren(
@@ -2774,7 +2842,7 @@
     /* ---- List ---- */
 
     function drawList() {
-      const all = BT.monthTx(state.month);
+      const all = book.month(state.month);
       const rows = state.filter === 'all' ? all : all.filter(function (t) { return t.type === state.filter; });
       if (!rows.length) {
         listBox.replaceChildren(h('p', { class: 'empty' }, all.length ? 'No entries in this category.' : 'No entries for ' + BT.monthLabel(state.month) + ' yet.'));
@@ -2788,7 +2856,7 @@
             h('div', { class: 'tx-desc' }, tx.desc),
             h('div', { class: 'tx-cat' }, BT.TYPE_LABELS[tx.type])),
           h('span', { class: 'tx-amount' }, (tx.type === 'income' ? '+' : '') + money(tx.cents)),
-          h('div', { class: 'tx-tools' },
+          !book.canEdit ? null : h('div', { class: 'tx-tools' },
             h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Edit ' + label, title: 'Edit', onclick: function () { startEditing(tx); } }, icon('edit')),
             h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Delete ' + label, title: 'Delete', onclick: function () { removeEntry(tx); } }, icon('remove'))));
       })));
@@ -2797,7 +2865,7 @@
     function drawAll() {
       monthHeading.textContent = BT.monthLabel(state.month);
       thisMonth.hidden = state.month === BT.monthOf(BT.today());
-      drawSummary(BT.monthTx(state.month));
+      drawSummary(book.month(state.month));
       drawList();
     }
 
@@ -2811,9 +2879,9 @@
     }
 
     function exportCsv() {
-      const blob = new Blob(['﻿' + BT.toCsv(BT.listTx())], { type: 'text/csv;charset=utf-8' });
+      const blob = new Blob(['﻿' + BT.toCsv(book.list())], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      const link = h('a', { href: url, download: 'passbookhub-' + BT.today() + '.csv' });
+      const link = h('a', { href: url, download: 'passbookhub-' + (book.mine ? '' : user.username + '-') + BT.today() + '.csv' });
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -2831,8 +2899,8 @@
         h('div', null,
           h('h1', null, user.name),
           user.bio ? h('p', { class: 'small muted' }, user.bio) : null),
-        h('span', { class: 'private-pin', title: 'Your dashboard is private. People in your circle can\u2019t see your budget or entries.' },
-          icon('pin'), h('span', null, 'Private \u00b7 only you can see this'))),
+        book.mine ? privatePin() : sharedBadge(book)),
+      book.mine ? trustCard() : null,
       h('section', { 'aria-label': 'Monthly summary' },
         h('div', { class: 'month-nav' },
           monthHeading,
@@ -2840,7 +2908,7 @@
           h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Previous month', title: 'Previous month', onclick: function () { setMonth(BT.addMonths(state.month, -1)); } }, icon('prev')),
           h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Next month', title: 'Next month', onclick: function () { setMonth(BT.addMonths(state.month, 1)); } }, icon('next'))),
         summary),
-      h('section', { class: 'section' }, formTitle, h('div', { style: 'margin-top:0.75rem' }, form)),
+      book.canEdit ? h('section', { class: 'section' }, formTitle, h('div', { style: 'margin-top:0.75rem' }, form)) : null,
       h('section', { class: 'section' },
         h('div', { class: 'list-head' },
           h('h2', null, 'Entries'),
@@ -2848,7 +2916,241 @@
             h('button', { type: 'button', class: 'link', onclick: exportCsv }, 'Export CSV'),
             filter)),
         listBox),
-      h('p', { class: 'footnote' }, 'Your data is saved to your account, so you can sign in from any device.'));
+      h('p', { class: 'footnote' }, book.mine
+        ? 'Your data is saved to your account, so you can sign in from any device.'
+        : 'This is ' + user.name.split(' ')[0] + '\u2019s budget. Only ' + user.name.split(' ')[0] + ' and you can see it.'));
+  }
+
+
+  /* ---------- Trusted person ---------- */
+
+  /** "Private" or "Shared with Ana only", next to your name on the dashboard. */
+  function privatePin() {
+    const pin = h('span', { class: 'private-pin' });
+    function draw() {
+      const t = SOC.myTrust();
+      const shared = t && t.status === 'accepted';
+      if (shared) {
+        SOC.getProfile(t.member).then(function (p) {
+          if (!p || !pin.isConnected && pin.parentNode) return;
+          pin.replaceChildren(icon('pin'), h('span', null, 'Shared with ' + p.name.split(' ')[0] + ' only'));
+          pin.title = 'Only you and ' + p.name + ' can see this dashboard. The rest of your circle can’t.';
+        }).catch(function () {});
+      } else {
+        pin.replaceChildren(icon('pin'), h('span', null, 'Private · only you can see this'));
+        pin.title = 'Your dashboard is private. People in your circle can’t see your budget or entries.';
+      }
+    }
+    draw();
+    trustWatchers.push(function () { if (!pin.isConnected) return false; draw(); });
+    return pin;
+  }
+
+  function sharedBadge(book) {
+    const first = book.owner.name.split(' ')[0];
+    return h('div', { class: 'shared-tools' },
+      h('span', { class: 'private-pin shared' }, icon(book.canEdit ? 'edit' : 'eye'),
+        h('span', null, book.canEdit ? 'Shared with you \u00b7 you can edit' : 'Shared with you \u00b7 view only')),
+      h('button', {
+        type: 'button', class: 'link small',
+        onclick: async function () {
+          const ok = await ask({ title: 'Stop seeing ' + first + '\u2019s dashboard?', body: first + ' would need to invite you again.', yes: 'Leave', no: 'Stay' });
+          if (!ok) return;
+          try { await SOC.leaveTrust(book.owner.id); toast('You left ' + first + '\u2019s dashboard.'); location.hash = '#dashboard'; }
+          catch (error) { toast(error.message); }
+        }
+      }, 'Leave'));
+  }
+
+
+  const trustWatchers = [];
+  /* Each watcher returns false once its screen is gone, and is then dropped. */
+  function drawTrustWatchers() {
+    for (let i = trustWatchers.length - 1; i >= 0; i--) {
+      let keep = true;
+      try { keep = trustWatchers[i]() !== false; } catch (e) { console.error(e); }
+      if (!keep) trustWatchers.splice(i, 1);
+    }
+  }
+
+  function roleSelect(value, onChange) {
+    const select = h('select', { class: 'vis-select', 'aria-label': 'What they can do' },
+      Object.keys(SOC.TRUST_ROLES).map(function (key) { return h('option', { value: key }, SOC.TRUST_ROLES[key]); }));
+    select.value = value;
+    if (onChange) select.addEventListener('change', function () { onChange(select.value); });
+    return select;
+  }
+
+  /** The dashboard card where you invite your one trusted person. */
+  function trustCard() {
+    const card = h('section', { class: 'trust-card', 'aria-label': 'Trusted person' });
+    let choosing = false;
+
+    function draw() {
+      if (!card.isConnected && card.parentNode) return;
+      const t = SOC.myTrust();
+      if (!SOC.trustLoaded()) { card.replaceChildren(h('p', { class: 'small muted' }, 'Loading…')); return; }
+      if (choosing) { drawChooser(); return; }
+      if (!t) {
+        card.replaceChildren(
+          h('div', { class: 'trust-text' },
+            h('h2', null, 'Trusted person'),
+            h('p', { class: 'small muted' }, 'Share this dashboard with one person from your circle. They can view it, or help you edit it. Nobody else can see it.')),
+          h('button', { type: 'button', class: 'btn', onclick: function () { choosing = true; draw(); } }, icon('addPerson'), h('span', null, 'Invite')));
+        return;
+      }
+      card.replaceChildren(h('p', { class: 'small muted' }, 'Loading…'));
+      SOC.getProfile(t.member).then(function (person) {
+        if (SOC.myTrust() !== t) return;
+        const name = person ? person.name : 'Someone';
+        const pending = t.status !== 'accepted';
+        const remove = h('button', {
+          type: 'button', class: 'btn small',
+          onclick: async function () {
+            const ok = await ask({
+              title: pending ? 'Cancel invite?' : 'Remove ' + name.split(' ')[0] + '?',
+              body: pending ? name + ' won’t be able to accept it.' : name + ' will no longer be able to see your dashboard.',
+              yes: pending ? 'Cancel invite' : 'Remove', no: 'Keep'
+            });
+            if (!ok) return;
+            remove.disabled = true;
+            try { await SOC.removeTrusted(); toast(pending ? 'Invite cancelled.' : name + ' can no longer see your dashboard.'); }
+            catch (error) { remove.disabled = false; toast(error.message); }
+          }
+        }, pending ? 'Cancel invite' : 'Remove');
+        card.replaceChildren(
+          h('div', { class: 'trust-who' },
+            person ? avatar(person, person.avatar, 2.5) : null,
+            h('div', { class: 'trust-text' },
+              h('h2', null, 'Trusted person'),
+              h('p', { class: 'small' }, h('strong', null, name),
+                pending ? h('span', { class: 'muted' }, ' · invite sent, waiting for them to accept') : h('span', { class: 'muted' }, ' can see this dashboard')))),
+          h('div', { class: 'trust-actions' },
+            roleSelect(t.role, async function (role) {
+              try { await SOC.setTrustRole(role); toast(name.split(' ')[0] + ' ' + (role === 'edit' ? 'can now edit.' : 'can now only view.')); }
+              catch (error) { toast(error.message); draw(); }
+            }),
+            remove));
+      }).catch(function () {});
+    }
+
+    function drawChooser() {
+      let picked = null;
+      const role = roleSelect('view');
+      const send = h('button', { type: 'button', class: 'btn primary', disabled: true }, 'Send invite');
+      const input = h('input', { type: 'search', placeholder: 'Search your circle', 'aria-label': 'Search your circle', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false' });
+      const list = h('ul', { class: 'trust-pick', role: 'listbox', 'aria-label': 'People in your circle' }, h('li', { class: 'small muted' }, 'Loading your circle…'));
+      let people = null;
+      function drawList() {
+        if (!people) return;
+        if (!people.length) {
+          list.replaceChildren(h('li', { class: 'small muted' }, 'Your circle is empty. Add people from ', h('a', { href: '#circle' }, 'Circle'), ' first.'));
+          return;
+        }
+        const q = input.value.trim().toLowerCase().replace(/^@/, '');
+        const shown = people.filter(function (p) { return !q || p.name.toLowerCase().indexOf(q) !== -1 || p.username.toLowerCase().indexOf(q) !== -1; });
+        if (!shown.length) { list.replaceChildren(h('li', { class: 'small muted' }, 'No one in your circle matches that.')); return; }
+        list.replaceChildren.apply(list, shown.map(function (p) {
+          const isPicked = picked && picked.id === p.id;
+          return h('li', null, h('button', {
+            type: 'button', role: 'option', class: 'picker-person' + (isPicked ? ' picked' : ''), 'aria-selected': isPicked ? 'true' : 'false',
+            onclick: function () { picked = p; send.disabled = false; drawList(); }
+          }, avatar(p, p.avatar, 2), h('span', { class: 'picker-names' }, h('strong', null, p.name), h('span', { class: 'small muted' }, '@' + p.username)),
+          isPicked ? icon('check') : null));
+        }));
+      }
+      input.addEventListener('input', drawList);
+      SOC.circleMembers().then(function (found) { people = found; drawList(); })
+        .catch(function (error) { list.replaceChildren(h('li', { class: 'small muted' }, error.message)); });
+      send.addEventListener('click', async function () {
+        if (!picked) return;
+        send.disabled = true;
+        try {
+          await SOC.inviteTrusted(picked.id, role.value, BT.currentUser().currency);
+          choosing = false;
+          toast('Invite sent to ' + picked.name + '.');
+          draw();
+        } catch (error) { send.disabled = false; toast(error.message); }
+      });
+      card.replaceChildren(
+        h('div', { class: 'trust-text' },
+          h('h2', null, 'Invite your trusted person'),
+          h('p', { class: 'small muted' }, 'Pick one person. They’ll get an alert and need to accept first.')),
+        h('div', { class: 'trust-chooser' },
+          input, list,
+          h('div', { class: 'trust-actions' },
+            h('label', { class: 'small muted' }, 'They can: '), role,
+            h('span', { class: 'grow' }),
+            h('button', { type: 'button', class: 'btn', onclick: function () { choosing = false; draw(); } }, 'Cancel'),
+            send)));
+      setTimeout(function () { if (input.isConnected) input.focus(); }, 0);
+    }
+
+    draw();
+    trustWatchers.push(function () { if (!card.isConnected) return false; if (!choosing) draw(); });
+    return card;
+  }
+
+  /* ---------- Someone else's dashboard (you are their trusted person) ---------- */
+
+  function viewShared() {
+    const username = location.hash.slice(3);
+    const box = h('div', null, h('div', { class: 'wide' }, h('p', { class: 'muted' }, 'Loading dashboard…')));
+    let stop = null, closed = false;
+    state.cleanup = function () { closed = true; if (stop) stop(); stop = null; };
+
+    function denied(text) {
+      box.replaceChildren(h('div', { class: 'wide' }, h('div', { class: 'empty-state' },
+        h('h1', null, 'You can’t see this dashboard'),
+        h('p', { class: 'muted' }, text),
+        h('a', { class: 'btn', href: '#dashboard' }, 'Back to your dashboard'))));
+    }
+
+    SOC.findByUsername(username).then(function (person) {
+      if (closed) return;
+      if (!person) { denied('No one on PassbookHub has the username @' + username + '.'); return; }
+      if (person.id === BT.currentUser().id) { location.hash = '#dashboard'; return; }
+      document.title = person.name.split(' ')[0] + '’s dashboard · PassbookHub';
+      let txs = [];
+      let ready = false;
+      let shownFor = null;
+      function share() { const t = SOC.trustFrom(person.id); return t && t.status === 'accepted' ? t : null; }
+      const book = {
+        mine: false, owner: person,
+        get canEdit() { const t = share(); return !!t && t.role === 'edit'; },
+        get currency() { const t = share(); return (t && t.currency) || 'PHP'; },
+        list: function () { return txs.slice(); },
+        month: function (m) {
+          return txs.filter(function (t) { return BT.monthOf(t.date) === m; }).sort(function (a, b) {
+            return a.date === b.date ? b.createdAt - a.createdAt : (a.date < b.date ? 1 : -1);
+          });
+        },
+        add: function (tx) { return SOC.addSharedTx(person.id, tx); },
+        update: function (id, changes) { return SOC.updateSharedTx(person.id, id, changes); },
+        remove: async function (id) { const t = txs.find(function (x) { return x.id === id; }); if (!t) return null; await SOC.deleteSharedTx(person.id, id); return t; },
+        restore: function (tx) { return SOC.restoreSharedTx(person.id, tx); }
+      };
+      function render() {
+        if (closed) return;
+        const t = share();
+        if (!SOC.trustLoaded()) return;
+        if (!t) { if (stop) { stop(); stop = null; } denied(person.name + ' hasn’t shared their dashboard with you, or stopped sharing it.'); shownFor = null; return; }
+        if (!stop) {
+          stop = SOC.watchSharedTx(person.id, function (list) {
+            txs = list; ready = true;
+            if (state.refreshDashboard && shownFor) state.refreshDashboard(); else render();
+          }, function (error) { if (!closed) denied(error.message); });
+        }
+        if (!ready) return;
+        const key = t.role + '|' + t.currency;
+        if (shownFor === key) { if (state.refreshDashboard) state.refreshDashboard(); return; }
+        shownFor = key;
+        box.replaceChildren(viewDashboard(null, book));
+      }
+      state.onTrustChange = render;
+      render();
+    }).catch(function (error) { if (!closed) denied(error.message); });
+    return box;
   }
 
   /* ---------- Start ---------- */
@@ -2856,6 +3158,16 @@
   SOC.onChats(function (list) {
     drawBadges();
     dock.onChats(list);
+  });
+  SOC.onTrust(function () {
+    drawTrustWatchers();
+    if (state.onTrustChange) state.onTrustChange();
+    const t = SOC.myTrust();
+    const user = BT.currentUser();
+    if (t && user) SOC.syncTrustCurrency(user.currency);
+  });
+  BT.onTxChange(function () {
+    if (state.view === 'dashboard' && state.refreshDashboard) state.refreshDashboard();
   });
   SOC.onNotifications(function (notes) {
     drawBadges();
