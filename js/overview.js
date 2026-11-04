@@ -548,30 +548,248 @@ window.OVERVIEW = (function () {
 
     function debtForm(existing, presetDir) {
       const d = existing || { dir: presetDir || 'owe', person: '', note: '', cents: 0, paidCents: 0, due: '' };
-      const dir = input('dir', 'Type', { tag: 'select', options: [h('option', { value: 'owe' }, 'I owe them (utang ko)'), h('option', { value: 'lent' }, 'They owe me (pinautang ko)')] });
-      dir.control.value = d.dir;
-      const person = input('person', 'Name', { maxlength: 40, autocomplete: 'off', placeholder: 'e.g. Tita Lorna, Juan, Home Credit' }, true);
+      const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+      const iso = function (x) { return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); };
+      const today = function () { const x = new Date(); x.setHours(0, 0, 0, 0); return x; };
+      const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      /* ---- Live preview card ---- */
+      const pvAvatar = h('span', { class: 'ov-pv-avatar', 'aria-hidden': 'true' });
+      const pvName = h('span', { class: 'ov-pv-name' });
+      const pvSub = h('span', { class: 'ov-pv-sub' });
+      const pvAmount = h('span', { class: 'ov-pv-amount num' });
+      const pvLabel = h('span', { class: 'ov-pv-label' });
+      const preview = h('div', { class: 'ov-pv', 'aria-live': 'polite' },
+        pvAvatar, h('div', { class: 'ov-pv-main' }, pvName, pvSub),
+        h('div', { class: 'ov-pv-right' }, pvAmount, pvLabel));
+      let shown = 0, anim = 0;
+      function countTo(target) {
+        cancelAnimationFrame(anim);
+        if (reduceMotion) { shown = target; pvAmount.textContent = money(target); return; }
+        const from = shown, start = performance.now();
+        (function step(now) {
+          const k = Math.min(1, (now - start) / 260), e = 1 - Math.pow(1 - k, 3);
+          shown = Math.round(from + (target - from) * e);
+          pvAmount.textContent = money(shown);
+          if (k < 1) anim = requestAnimationFrame(step);
+        })(start);
+      }
+      function hue(text) { let n = 0; for (let i = 0; i < text.length; i++) n = (n * 31 + text.charCodeAt(i)) % 360; return n; }
+
+      /* ---- Type toggle ---- */
+      let dirValue = d.dir === 'lent' ? 'lent' : 'owe';
+      const dirError = h('p', { class: 'error small', id: 'e-ov-dir', hidden: true });
+      function seg(value, title, sub) {
+        return h('button', { type: 'button', role: 'radio', class: 'ov-dirseg-btn', 'data-value': value,
+          onclick: function () { setDir(value); } }, h('span', { class: 'ov-dirseg-title' }, title), h('span', { class: 'ov-dirseg-sub' }, sub));
+      }
+      const segOwe = seg('owe', 'I owe them', 'utang ko');
+      const segLent = seg('lent', 'They owe me', 'pinautang ko');
+      const segThumb = h('span', { class: 'ov-dirseg-thumb', 'aria-hidden': 'true' });
+      const segGroup = h('div', { class: 'ov-dirseg', role: 'radiogroup', 'aria-label': 'Type', id: 'f-ov-dir' }, segThumb, segOwe, segLent);
+      segGroup.addEventListener('keydown', function (e) {
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].indexOf(e.key) === -1) return;
+        e.preventDefault();
+        setDir(dirValue === 'owe' ? 'lent' : 'owe');
+        (dirValue === 'owe' ? segOwe : segLent).focus();
+      });
+
+      /* ---- Name with suggestions from people already in the book ---- */
+      const person = input('person', 'Who do you owe?', { maxlength: 40, autocomplete: 'off', placeholder: 'e.g. Tita Lorna, Juan, Home Credit' }, true);
       person.control.value = d.person;
-      const note = input('note', 'Note', { maxlength: 80, autocomplete: 'off', placeholder: 'Optional, e.g. tuition, phone' }, true);
-      note.control.value = d.note || '';
-      const total = input('cents', 'Total amount (' + book.currency + ')', moneyAttrs, true);
-      const paid = input('paidCents', 'Paid so far (' + book.currency + ')', moneyAttrs, true);
-      if (existing) { total.control.value = (d.cents / 100).toFixed(2); paid.control.value = (d.paidCents / 100).toFixed(2); }
+      const personLabel = person.wrap.querySelector('label');
+      const known = [];
+      (data.debts || []).forEach(function (x) { if (x.person && known.indexOf(x.person) === -1) known.push(x.person); });
+      const suggest = h('div', { class: 'ov-chips ov-suggest', hidden: true });
+      person.wrap.insertBefore(suggest, person.wrap.querySelector('.error'));
+      function drawSuggest() {
+        const q = person.control.value.trim().toLowerCase();
+        const list = known.filter(function (n) { return n.toLowerCase() !== q && (!q || n.toLowerCase().indexOf(q) !== -1); }).slice(0, 5);
+        suggest.replaceChildren.apply(suggest, list.map(function (n) {
+          return h('button', { type: 'button', class: 'ov-chip', onmousedown: function (e) { e.preventDefault(); },
+            onclick: function () { person.control.value = n; suggest.hidden = true; clearError('person'); drawPreview(); total.control.focus(); } }, n);
+        }));
+        suggest.hidden = !list.length || document.activeElement !== person.control;
+      }
+      person.control.addEventListener('focus', drawSuggest);
+      person.control.addEventListener('blur', function () { suggest.hidden = true; });
+
+      /* ---- Amounts ---- */
+      const total = input('cents', 'Amount (' + book.currency + ')', Object.assign({ placeholder: '0.00' }, moneyAttrs), true);
+      const paid = input('paidCents', 'Paid so far (' + book.currency + ')', Object.assign({ placeholder: '0.00' }, moneyAttrs), true);
+      if (existing) { total.control.value = (d.cents / 100).toFixed(2); paid.control.value = d.paidCents ? (d.paidCents / 100).toFixed(2) : ''; }
+      const toField = function (c) { return c % 100 ? (c / 100).toFixed(2) : String(c / 100); };
+      const quick = h('div', { class: 'ov-chips ov-quick' }, [10000, 50000, 100000, 500000].map(function (c) {
+        return h('button', { type: 'button', class: 'ov-chip', title: 'Add to amount', onclick: function () {
+          total.control.value = toField(Math.max(0, cents(total.control)) + c);
+          clearError('cents'); drawSummary(); bump(pvAmount);
+        } }, '+' + (c / 100).toLocaleString());
+      }));
+      total.wrap.insertBefore(quick, total.wrap.querySelector('.error'));
+
+      /* Paid: drag the slider or tap a share. */
+      const slider = h('input', { type: 'range', class: 'ov-slider', min: '0', max: '0', step: '1', 'aria-label': 'Paid so far' });
+      slider.addEventListener('input', function () {
+        const t = cents(total.control);
+        const v = Number(slider.value) >= t - 50 ? t : Math.round(Number(slider.value) / 100) * 100;
+        paid.control.value = v ? toField(v) : '';
+        clearError('paidCents'); drawSummary();
+      });
+      const shares = [0, 25, 50, 75, 100];
+      const shareChips = shares.map(function (s) {
+        return h('button', { type: 'button', class: 'ov-chip', 'aria-pressed': 'false', onclick: function () {
+          const t = cents(total.control);
+          if (t <= 0) { total.control.focus(); return; }
+          const v = Math.round(t * s / 100);
+          paid.control.value = v ? toField(v) : '';
+          clearError('paidCents'); drawSummary();
+        } }, s === 100 ? 'Paid in full' : s + '%');
+      });
+      const leftText = h('span', { class: 'ov-debt-left' });
+      const pctText = h('span', { class: 'ov-debt-pct muted' });
+      const summary = h('div', { class: 'ov-debt-summary', hidden: true },
+        h('div', { class: 'ov-debt-line' }, leftText, pctText), slider, h('div', { class: 'ov-chips' }, shareChips));
+
+      let wasDone = false;
+      function drawSummary() {
+        const t = cents(total.control), p = Math.max(0, cents(paid.control));
+        if (t <= 0) { summary.hidden = true; wasDone = false; drawPreview(); return; }
+        summary.hidden = false;
+        const pct = Math.min(100, Math.round(p / t * 100));
+        slider.max = String(t);
+        slider.value = String(Math.min(p, t));
+        slider.style.setProperty('--pct', pct + '%');
+        const done = p === t, over = p > t;
+        summary.classList.toggle('done', done);
+        summary.classList.toggle('over', over);
+        leftText.textContent = over ? '' : done ? 'Fully paid' : money(t - p) + ' left';
+        pctText.textContent = over ? 'Paid is more than the amount' : done ? '' : pct + '% paid';
+        shareChips.forEach(function (c, i) { c.setAttribute('aria-pressed', !over && Math.round(t * shares[i] / 100) === p ? 'true' : 'false'); });
+        if (done && !wasDone && !reduceMotion) { summary.classList.remove('pop'); void summary.offsetWidth; summary.classList.add('pop'); }
+        wasDone = done;
+        drawPreview();
+      }
+      total.control.addEventListener('input', function () { clearError('cents'); drawSummary(); });
+      paid.control.addEventListener('input', function () { clearError('paidCents'); drawSummary(); });
+
+      /* ---- Due date with quick picks ---- */
       const due = input('due', 'Due date', { type: 'date' });
       due.control.value = d.due || '';
-      const payAll = existing && d.paidCents < d.cents ? h('button', { type: 'button', class: 'link small', onclick: function () { paid.control.value = total.control.value; } }, 'Mark as fully paid') : null;
+      const dueHint = h('span', { class: 'small muted ov-due-hint' });
+      function inDays(n) { const x = today(); x.setDate(x.getDate() + n); return iso(x); }
+      function endOfMonth() { const x = today(); return iso(new Date(x.getFullYear(), x.getMonth() + 1, 0)); }
+      function nextMonth() { const x = today(); const day = Math.min(x.getDate(), new Date(x.getFullYear(), x.getMonth() + 2, 0).getDate()); return iso(new Date(x.getFullYear(), x.getMonth() + 1, day)); }
+      const picks = [['In 1 week', function () { return inDays(7); }], ['End of month', endOfMonth], ['Next month', nextMonth], ['No date', function () { return ''; }]];
+      const chips = picks.map(function (p) {
+        return h('button', { type: 'button', class: 'ov-chip', 'aria-pressed': 'false', onclick: function () { due.control.value = p[1](); drawDue(); } }, p[0]);
+      });
+      let dueText = '';
+      function drawDue() {
+        const v = due.control.value;
+        chips.forEach(function (c, i) { c.setAttribute('aria-pressed', picks[i][1]() === v ? 'true' : 'false'); });
+        if (!v) { dueText = ''; dueHint.textContent = ''; drawPreview(); return; }
+        const days = Math.round((new Date(v + 'T00:00:00') - today()) / 86400000);
+        dueText = days === 0 ? 'Due today' : days === 1 ? 'Due tomorrow' : days > 1 ? 'In ' + days + ' days' : Math.abs(days) + (days === -1 ? ' day overdue' : ' days overdue');
+        dueHint.textContent = dueText;
+        dueHint.classList.toggle('late', days < 0);
+        preview.classList.toggle('late', days < 0);
+        drawPreview();
+      }
+      due.control.addEventListener('input', drawDue);
+      due.control.addEventListener('change', drawDue);
+      const dueWrap = h('div', { class: 'acct-field ov-due' },
+        h('label', { for: 'f-ov-due' }, 'Due date'),
+        h('div', { class: 'ov-due-row' }, due.control, dueHint),
+        h('div', { class: 'ov-chips' }, chips),
+        due.wrap.querySelector('.error'));
+
+      /* ---- Note ---- */
+      const note = input('note', 'Note', { maxlength: 80, autocomplete: 'off', placeholder: 'e.g. tuition, phone' }, true);
+      note.control.value = d.note || '';
+      const noteCount = h('span', { class: 'small muted ov-count' });
+      note.wrap.querySelector('label').append(noteCount);
+      function drawNote() { noteCount.textContent = note.control.value.length ? note.control.value.length + '/80' : ''; drawPreview(); }
+      note.control.addEventListener('input', drawNote);
+      const addNote = h('button', { type: 'button', class: 'link small ov-add-note', onclick: function () {
+        addNote.hidden = true; note.wrap.hidden = false; note.control.focus();
+      } }, '+ Add a note');
+      if (d.note) addNote.hidden = true; else note.wrap.hidden = true;
+
+      /* ---- Inline checks as you go ---- */
+      function showError(id, text) {
+        const box = document.getElementById('e-ov-' + id), ctl = document.getElementById('f-ov-' + id);
+        if (box) { box.textContent = text; box.hidden = false; }
+        if (ctl) ctl.setAttribute('aria-invalid', 'true');
+      }
+      function clearError(id) {
+        const box = document.getElementById('e-ov-' + id), ctl = document.getElementById('f-ov-' + id);
+        if (box) box.hidden = true;
+        if (ctl) ctl.removeAttribute('aria-invalid');
+      }
+      person.control.addEventListener('input', function () { clearError('person'); drawSuggest(); drawPreview(); });
+      person.control.addEventListener('blur', function () { if (person.control.value && !person.control.value.trim()) showError('person', 'Enter a name.'); });
+      total.control.addEventListener('blur', function () { if (total.control.value !== '' && cents(total.control) <= 0) showError('cents', 'Enter an amount above zero.'); });
+
+      function bump(node) { if (reduceMotion) return; node.classList.remove('bump'); void node.offsetWidth; node.classList.add('bump'); }
+
+      function drawPreview() {
+        const name = person.control.value.trim();
+        pvName.textContent = name || (dirValue === 'owe' ? 'Who do you owe?' : 'Who owes you?');
+        preview.classList.toggle('empty', !name);
+        pvAvatar.textContent = name ? name.charAt(0).toUpperCase() : '?';
+        pvAvatar.style.setProperty('--h', name ? hue(name) : 230);
+        const bits = [dirValue === 'owe' ? 'You owe' : 'Owes you'];
+        if (note.control.value.trim()) bits.push(note.control.value.trim());
+        if (dueText) bits.push(dueText);
+        pvSub.textContent = bits.join(' · ');
+        const t = Math.max(0, cents(total.control)), p = Math.max(0, cents(paid.control));
+        const done = t > 0 && p >= t;
+        pvLabel.textContent = done ? 'Settled' : p > 0 ? 'left' : '';
+        countTo(done ? t : Math.max(0, t - p));
+        preview.classList.toggle('done', done);
+      }
+
+      function setDir(value) {
+        dirValue = value;
+        [segOwe, segLent].forEach(function (b) {
+          const on = b.getAttribute('data-value') === value;
+          b.setAttribute('aria-checked', on ? 'true' : 'false');
+          b.tabIndex = on ? 0 : -1;
+        });
+        segGroup.setAttribute('data-dir', value);
+        preview.setAttribute('data-dir', value);
+        personLabel.textContent = value === 'owe' ? 'Who do you owe?' : 'Who owes you?';
+        drawPreview();
+      }
+
+      setDir(dirValue);
+      drawSummary();
+      drawDue();
+      drawNote();
+
       dialog(existing ? 'Edit debt' : 'Add a debt',
-        [h('div', { class: 'acct-row' }, dir.wrap, person.wrap), note.wrap, h('div', { class: 'acct-row' }, total.wrap, paid.wrap), h('div', { class: 'acct-row' }, due.wrap, payAll ? h('div', { class: 'acct-field ov-payall' }, payAll) : null)],
+        [preview, h('div', { class: 'acct-field' }, segGroup, dirError), person.wrap,
+          h('div', { class: 'acct-row' }, total.wrap, paid.wrap), summary,
+          dueWrap, note.wrap, addNote],
         async function () {
-          const next = { dir: dir.control.value, person: person.control.value, note: note.control.value, cents: cents(total.control), paidCents: cents(paid.control), due: due.control.value };
+          const next = { dir: dirValue, person: person.control.value, note: note.control.value, cents: cents(total.control), paidCents: cents(paid.control), due: due.control.value };
           const problems = SOC.validateDebt(next);
-          if (problems) return problems;
+          if (problems) {
+            if (problems.note) { note.wrap.hidden = false; addNote.hidden = true; }
+            Object.keys(problems).forEach(function (k) { const c = document.getElementById('f-ov-' + k); if (c) c.setAttribute('aria-invalid', 'true'); });
+            return problems;
+          }
           await SOC.saveDebt(owner, existing && existing.id, next);
           ctx.toast(existing ? 'Debt updated.' : 'Debt added.');
           debtDir = next.dir;
           return null;
         },
         existing ? function () { return SOC.deleteDebt(owner, existing.id); } : null);
+      const form = preview.closest('form');
+      if (form) form.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); form.requestSubmit(); }
+      });
+      if (!existing) person.control.focus();
     }
 
     function goalForm(existing, isNew) {
