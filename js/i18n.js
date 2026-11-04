@@ -14,6 +14,13 @@
 
   /* Exact UI strings (matched after trimming; surrounding spaces are kept). */
   const FIL = {
+    // Sign up: OTP and legal
+    'Two-step verification (OTP)': 'Two-step verification (OTP)',
+    'Recommended': 'Inirerekomenda',
+    'Next: verify your email, then scan a QR code with Google Authenticator, Microsoft Authenticator or similar. Every sign-in will ask for its 6-digit code.': 'Susunod: i-verify ang email mo, tapos i-scan ang QR code gamit ang Google Authenticator, Microsoft Authenticator o katulad. Hihingin ang 6-digit code nito tuwing magsa-sign in ka.',
+    'Not recommended. Without OTP, anyone who learns your password can open your budget. You can turn it on later in Settings.': 'Hindi inirerekomenda. Kung walang OTP, mabubuksan ng sinumang makaalam ng password mo ang budget mo. Puwede mo itong i-on mamaya sa Settings.',
+    'Terms & Privacy': 'Terms at Privacy',
+    'Verify email and turn on OTP': 'I-verify ang email at i-on ang OTP',
     // Sign up wizard
     'What’s your name?': 'Ano ang pangalan mo?',
     'Enter the name you use in real life. People in your circle will see it.': 'Ilagay ang pangalang gamit mo sa totoong buhay. Makikita ito ng circle mo.',

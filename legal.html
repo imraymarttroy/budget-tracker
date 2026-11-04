@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="PassbookHub Terms of Service and Privacy Policy, in plain words.">
+<title>Terms & Privacy · PassbookHub</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23272635'/%3E%3Cpath d='M7 22h18M7 16h11M7 10h7' stroke='%23b1e5f2' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<script>try { var t = localStorage.getItem('pbh.theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #e8e9f3; --surface: #ffffff; --surface-2: #f4f5fa; --ink: #272635; --ink-2: #5b5a6b; --line: #d8d9e3; --line-strong: #a6a6a8;
+  --brand: #b1e5f2; --brand-ink: #272635; --accent: #272635; --on-accent: #e8e9f3;
+  --good: #0ca30c; --bad: #d42a27; --warn: #e09b00;
+  --glow-a: #b1e5f2; --glow-b: #cfc8ff; --glow-c: #ffd9c2;
+  --shadow: 0 1px 2px rgba(39,38,53,.06), 0 10px 30px -12px rgba(39,38,53,.25);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #1f1e2b; --surface: #2b2a3b; --surface-2: #33324a; --ink: #e8e9f3; --ink-2: #a6a6b4; --line: #3e3d50; --line-strong: #5a5970;
+  --accent: #b1e5f2; --on-accent: #272635; --good: #39c339; --bad: #ff6b68; --warn: #fab219;
+  --glow-a: #2f6e7e; --glow-b: #463b8c; --glow-c: #7a4a35;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px -12px rgba(0,0,0,.6);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #1f1e2b; --surface: #2b2a3b; --surface-2: #33324a; --ink: #e8e9f3; --ink-2: #a6a6b4; --line: #3e3d50; --line-strong: #5a5970;
+    --accent: #b1e5f2; --on-accent: #272635; --good: #39c339; --bad: #ff6b68; --warn: #fab219;
+    --glow-a: #2f6e7e; --glow-b: #463b8c; --glow-c: #7a4a35;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px -12px rgba(0,0,0,.6);
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 7rem; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; } }
+body { margin: 0; background: var(--page); color: var(--ink); font: 16px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+/* ---------- Top bar ---------- */
+.bar { position: sticky; top: 0; z-index: 20; backdrop-filter: saturate(1.6) blur(14px); -webkit-backdrop-filter: saturate(1.6) blur(14px);
+  background: color-mix(in srgb, var(--page) 78%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.bar-in { max-width: 72rem; margin: 0 auto; padding: 0.625rem 1.25rem; display: flex; align-items: center; gap: 1rem; }
+.logo { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 800; letter-spacing: -0.01em; text-decoration: none; }
+.logo svg { width: 1.75rem; height: 1.75rem; }
+.tabs { position: relative; display: flex; margin: 0 auto; padding: 0.25rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.tab { position: relative; z-index: 1; border: 0; background: none; padding: 0.5rem 1.125rem; border-radius: 999px; font-weight: 650; font-size: 0.9375rem; color: var(--ink-2); cursor: pointer; transition: color .25s; white-space: nowrap; }
+.tab[aria-selected="true"] { color: var(--on-accent); }
+.tab-thumb { position: absolute; z-index: 0; top: 0.25rem; bottom: 0.25rem; border-radius: 999px; background: var(--accent); transition: left .35s cubic-bezier(.3,1.4,.5,1), width .35s cubic-bezier(.3,1.4,.5,1); }
+.icon-btn { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); cursor: pointer; transition: transform .15s; }
+.icon-btn:hover { transform: rotate(-12deg) scale(1.05); }
+.icon-btn svg { width: 1.125rem; height: 1.125rem; }
+.back-link { font-size: 0.875rem; font-weight: 600; color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+.back-link:hover { color: var(--ink); }
+.progress { position: absolute; left: 0; bottom: -1px; height: 3px; width: 0; background: linear-gradient(90deg, var(--glow-a), var(--accent)); transition: width .1s linear; }
+@media (max-width: 40rem) { .back-link span, .logo b { display: none; } .tab { padding: 0.5rem 0.875rem; font-size: 0.875rem; } }
+
+/* ---------- Hero ---------- */
+.hero { position: relative; overflow: hidden; }
+.blobs { position: absolute; inset: -20% -10% auto; height: 34rem; pointer-events: none; filter: blur(60px); opacity: .85; }
+.blobs i { position: absolute; border-radius: 50%; animation: drift 18s ease-in-out infinite alternate; }
+.blobs i:nth-child(1) { width: 26rem; height: 26rem; left: 8%; top: 10%; background: var(--glow-a); }
+.blobs i:nth-child(2) { width: 22rem; height: 22rem; right: 10%; top: 0; background: var(--glow-b); animation-delay: -6s; }
+.blobs i:nth-child(3) { width: 18rem; height: 18rem; left: 45%; top: 35%; background: var(--glow-c); animation-delay: -12s; }
+@keyframes drift { to { transform: translate(6%, 12%) scale(1.15); } }
+.hero-in { position: relative; max-width: 72rem; margin: 0 auto; padding: 4rem 1.25rem 2rem; text-align: center; }
+.eyebrow { display: inline-flex; align-items: center; gap: .5rem; padding: .3125rem .875rem; border-radius: 999px; background: color-mix(in srgb, var(--surface) 75%, transparent); border: 1px solid var(--line); font-size: .8125rem; font-weight: 600; }
+.eyebrow .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 var(--good); animation: ping 2s infinite; }
+@keyframes ping { 70% { box-shadow: 0 0 0 .5rem transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+h1 { margin: 1rem auto .75rem; max-width: 18ch; font-size: clamp(2.25rem, 6vw, 4rem); line-height: 1.05; letter-spacing: -0.035em; font-weight: 800; }
+h1 .swap { display: inline-block; background: linear-gradient(100deg, var(--ink) 20%, color-mix(in srgb, var(--accent) 60%, #6a5acd)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+:root[data-theme="dark"] h1 .swap { background-image: linear-gradient(100deg, #fff 10%, var(--brand)); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) h1 .swap { background-image: linear-gradient(100deg, #fff 10%, var(--brand)); } }
+.lede { max-width: 38rem; margin: 0 auto; color: var(--ink-2); font-size: 1.0625rem; }
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; margin-top: 1.5rem; }
+.chip { display: inline-flex; align-items: center; gap: .375rem; padding: .375rem .75rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: .8125rem; font-weight: 600; }
+.chip svg { width: 1rem; height: 1rem; }
+.mode { display: inline-flex; margin-top: 1.75rem; padding: .25rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.mode button { border: 0; background: none; padding: .625rem 1.125rem; border-radius: 10px; font-weight: 650; cursor: pointer; color: var(--ink-2); display: inline-flex; align-items: center; gap: .5rem; }
+.mode button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.mode svg { width: 1.125rem; height: 1.125rem; }
+
+/* ---------- Layout ---------- */
+main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+.panel[hidden] { display: none; }
+.panel { animation: rise .5s cubic-bezier(.2,.8,.2,1); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+.section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: 2.5rem 0 1rem; }
+.section-title h2 { margin: 0; font-size: 1.5rem; letter-spacing: -0.02em; }
+.section-title p { margin: 0; color: var(--ink-2); font-size: .875rem; }
+
+/* Flip cards: the short version */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr)); gap: 1rem; perspective: 1200px; }
+.card { position: relative; height: 12.5rem; border: 0; padding: 0; background: none; cursor: pointer; text-align: left; transform-style: preserve-3d; transition: transform .6s cubic-bezier(.3,1.3,.5,1); opacity: 0; transform: translateY(18px); }
+.card.in { opacity: 1; transform: none; transition: transform .6s cubic-bezier(.3,1.3,.5,1), opacity .5s; }
+.card.flipped, .card.in.flipped { transform: rotateY(180deg) !important; }
+.face { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 1.25rem; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); backface-visibility: hidden; -webkit-backface-visibility: hidden; overflow: hidden; }
+.face.back { transform: rotateY(180deg); background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.card:hover .face.front { border-color: var(--line-strong); }
+.card-icon { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 14px; background: var(--c, var(--brand)); color: #272635; transition: transform .3s; }
+.card:hover .card-icon { transform: scale(1.08) rotate(-6deg); }
+.card-icon svg { width: 1.5rem; height: 1.5rem; }
+.card h3 { margin: auto 0 .25rem; font-size: 1.0625rem; letter-spacing: -0.01em; line-height: 1.3; }
+.card .hint { font-size: .75rem; font-weight: 600; color: var(--ink-2); display: flex; align-items: center; gap: .25rem; }
+.face.back p { margin: 0; font-size: .9375rem; line-height: 1.5; }
+.face.back .hint { margin-top: auto; color: inherit; opacity: .7; }
+.face::after { content: ""; position: absolute; right: -2.5rem; top: -2.5rem; width: 7rem; height: 7rem; border-radius: 50%; background: var(--c, var(--brand)); opacity: .14; }
+
+/* Who can see what */
+.matrix { border-radius: 22px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; }
+.mx-head, .mx-row { display: grid; grid-template-columns: minmax(10rem, 2fr) repeat(4, minmax(3.5rem, 1fr)); align-items: center; }
+.mx-head { padding: .875rem 1.25rem; background: var(--surface-2); font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+.mx-head span:not(:first-child) { text-align: center; }
+.mx-row { width: 100%; padding: .75rem 1.25rem; border: 0; border-top: 1px solid var(--line); background: none; cursor: pointer; text-align: left; transition: background .2s; }
+.mx-row:hover, .mx-row[aria-expanded="true"] { background: color-mix(in srgb, var(--brand) 18%, var(--surface)); }
+.mx-name { display: flex; align-items: center; gap: .625rem; font-weight: 600; }
+.mx-name svg { width: 1.25rem; height: 1.25rem; flex: none; color: var(--ink-2); }
+.mx-cell { display: grid; place-items: center; }
+.pip { width: 1.5rem; height: 1.5rem; border-radius: 50%; display: grid; place-items: center; transform: scale(.6); opacity: 0; transition: transform .4s cubic-bezier(.3,1.6,.5,1), opacity .3s; }
+.matrix.in .pip { transform: none; opacity: 1; }
+.pip.yes { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.pip.opt { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.pip.no { background: var(--surface-2); color: var(--line-strong); }
+.pip svg { width: .875rem; height: .875rem; }
+.mx-detail { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s ease; border-top: 0 solid var(--line); }
+.mx-detail.open { grid-template-rows: 1fr; }
+.mx-detail > div { overflow: hidden; }
+.mx-detail p { margin: 0; padding: 0 1.25rem 1rem 3.125rem; color: var(--ink-2); font-size: .9375rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 1rem; padding: .875rem 1.25rem; border-top: 1px solid var(--line); font-size: .8125rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: .375rem; }
+.legend .pip { transform: none; opacity: 1; width: 1.125rem; height: 1.125rem; }
+@media (max-width: 34rem) { .mx-head, .mx-row { grid-template-columns: minmax(7.5rem, 1.6fr) repeat(4, minmax(2.25rem, 1fr)); padding-inline: .75rem; } .mx-head { font-size: .625rem; } .mx-name svg { display: none; } .mx-detail p { padding-left: .75rem; } }
+
+/* Do and don't */
+.dd { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 44rem) { .dd { grid-template-columns: 1fr; } }
+.dd-col { padding: 1.25rem; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.dd-col h3 { display: flex; align-items: center; gap: .5rem; margin: 0 0 .75rem; font-size: 1.0625rem; }
+.dd-col ul { list-style: none; margin: 0; padding: 0; }
+.dd-col li { display: flex; gap: .625rem; padding: .5rem 0; border-top: 1px dashed var(--line); font-size: .9375rem; opacity: 0; transform: translateX(-8px); transition: opacity .4s, transform .4s; }
+.dd-col li:first-child { border-top: 0; }
+.dd.in li { opacity: 1; transform: none; }
+.dd-col .mark { flex: none; display: grid; place-items: center; width: 1.375rem; height: 1.375rem; border-radius: 50%; margin-top: .125rem; }
+.dd-col.do .mark { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.dd-col.dont .mark { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.mark svg { width: .75rem; height: .75rem; }
+
+/* ---------- Full text ---------- */
+.full { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 2rem; align-items: start; margin-top: 1rem; }
+@media (max-width: 56rem) { .full { grid-template-columns: 1fr; } .toc { display: none; } }
+.toc { position: sticky; top: 5.5rem; max-height: calc(100vh - 7rem); overflow: auto; padding: .5rem; }
+.toc p { margin: 0 0 .5rem .75rem; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+.toc a { position: relative; display: flex; gap: .625rem; padding: .4375rem .75rem; border-radius: 10px; font-size: .875rem; color: var(--ink-2); text-decoration: none; transition: background .2s, color .2s; }
+.toc a:hover { background: var(--surface); color: var(--ink); }
+.toc a.on { background: var(--surface); color: var(--ink); font-weight: 650; box-shadow: var(--shadow); }
+.toc a.on::before { content: ""; position: absolute; left: 0; top: .5rem; bottom: .5rem; width: 3px; border-radius: 2px; background: var(--accent); }
+.toc a .n { font-variant-numeric: tabular-nums; opacity: .6; min-width: 1.25rem; }
+.tools { position: sticky; top: 4.25rem; z-index: 5; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .625rem 0; background: linear-gradient(var(--page) 75%, transparent); }
+.search { flex: 1; min-width: 12rem; display: flex; align-items: center; gap: .5rem; padding: 0 .875rem; height: 2.75rem; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.search svg { width: 1.125rem; height: 1.125rem; color: var(--ink-2); flex: none; }
+.search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font: inherit; color: var(--ink); }
+.search kbd { font: 600 .6875rem var(--font); padding: .125rem .375rem; border-radius: 5px; border: 1px solid var(--line); color: var(--ink-2); }
+.count { font-size: .8125rem; color: var(--ink-2); min-width: 5rem; }
+.btn { display: inline-flex; align-items: center; gap: .375rem; height: 2.75rem; padding: 0 1rem; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: .875rem; cursor: pointer; text-decoration: none; }
+.btn:hover { border-color: var(--line-strong); }
+.btn svg { width: 1rem; height: 1rem; }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.sec { margin-bottom: .75rem; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); transition: box-shadow .25s, border-color .25s; }
+.sec.open { box-shadow: var(--shadow); }
+.sec[hidden] { display: none; }
+.sec-head { width: 100%; display: flex; align-items: center; gap: .875rem; padding: 1rem 1.25rem; border: 0; background: none; cursor: pointer; text-align: left; }
+.sec-num { flex: none; display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 11px; background: var(--surface-2); font-weight: 750; font-size: .875rem; font-variant-numeric: tabular-nums; transition: background .25s, color .25s; }
+.sec.open .sec-num { background: var(--accent); color: var(--on-accent); }
+.sec-head h3 { flex: 1; margin: 0; font-size: 1.0625rem; letter-spacing: -0.01em; }
+.chev { width: 1.25rem; height: 1.25rem; color: var(--ink-2); transition: transform .3s; }
+.sec.open .chev { transform: rotate(180deg); }
+.sec-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s ease; }
+.sec.open .sec-body { grid-template-rows: 1fr; }
+.sec-body > div { overflow: hidden; }
+.sec-inner { padding: 0 1.25rem 1.25rem 4.375rem; }
+@media (max-width: 34rem) { .sec-inner { padding-left: 1.25rem; } }
+.plain { display: flex; gap: .625rem; margin: 0 0 1rem; padding: .75rem .875rem; border-radius: 12px; background: color-mix(in srgb, var(--brand) 30%, var(--surface)); font-size: .9375rem; }
+:root[data-theme="dark"] .plain { background: color-mix(in srgb, var(--brand) 12%, var(--surface)); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .plain { background: color-mix(in srgb, var(--brand) 12%, var(--surface)); } }
+.plain b { flex: none; font-size: .6875rem; text-transform: uppercase; letter-spacing: .06em; padding: .125rem .5rem; height: fit-content; border-radius: 999px; background: var(--accent); color: var(--on-accent); margin-top: .1875rem; }
+.sec-inner p, .sec-inner li { color: var(--ink); font-size: .9688rem; }
+.sec-inner ul { padding-left: 1.125rem; }
+.sec-inner li { margin: .25rem 0; }
+.sec-inner li::marker { color: var(--line-strong); }
+.sec-inner a { color: var(--accent); font-weight: 600; }
+.copy { margin-left: auto; display: inline-flex; align-items: center; gap: .25rem; border: 0; background: none; color: var(--ink-2); font-size: .75rem; font-weight: 600; cursor: pointer; padding: .25rem .5rem; border-radius: 8px; opacity: 0; transition: opacity .2s; }
+.sec:hover .copy, .copy:focus-visible { opacity: 1; }
+.copy:hover { background: var(--surface-2); color: var(--ink); }
+.copy svg { width: .875rem; height: .875rem; }
+mark { background: color-mix(in srgb, var(--warn) 45%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.empty { padding: 2rem; text-align: center; color: var(--ink-2); }
+
+/* End */
+.end { margin-top: 3rem; padding: 2.5rem 1.5rem; border-radius: 28px; text-align: center; background: var(--accent); color: var(--on-accent); position: relative; overflow: hidden; }
+.end h2 { margin: .75rem 0 .5rem; font-size: clamp(1.5rem, 4vw, 2rem); letter-spacing: -0.02em; }
+.end p { margin: 0 auto 1.5rem; max-width: 32rem; opacity: .8; }
+.end .btn { background: var(--on-accent); color: var(--accent); border: 0; height: 3rem; padding: 0 1.5rem; border-radius: 999px; font-size: 1rem; }
+.ring { width: 4.5rem; height: 4.5rem; margin: 0 auto; }
+.ring circle { fill: none; stroke-width: 6; }
+.ring .track { stroke: color-mix(in srgb, var(--on-accent) 20%, transparent); }
+.ring .val { stroke: var(--glow-b); stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset .3s; }
+.ring text { fill: currentColor; font: 800 1rem var(--font); }
+.confetti { position: absolute; inset: 0; pointer-events: none; }
+.confetti i { position: absolute; top: -1rem; width: .5rem; height: .875rem; border-radius: 2px; animation: fall 2.4s ease-in forwards; }
+@keyframes fall { to { transform: translateY(26rem) rotate(540deg); opacity: 0; } }
+footer { padding: 2rem 1.25rem 3rem; text-align: center; color: var(--ink-2); font-size: .8125rem; }
+.toast { position: fixed; left: 50%; bottom: 1.5rem; z-index: 50; transform: translate(-50%, 2rem); opacity: 0; padding: .625rem 1rem; border-radius: 12px; background: var(--ink); color: var(--page); font-size: .875rem; font-weight: 600; transition: transform .3s, opacity .3s; pointer-events: none; }
+.toast.show { transform: translate(-50%, 0); opacity: 1; }
+.top { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 30; width: 3rem; height: 3rem; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); display: grid; place-items: center; cursor: pointer; transform: scale(0); transition: transform .3s cubic-bezier(.3,1.6,.5,1); }
+.top.show { transform: scale(1); }
+.top svg { width: 1.25rem; height: 1.25rem; }
+@media print { .bar, .hero .mode, .tools, .toc, .end, .top, footer, .blobs { display: none !important; } .sec-body { grid-template-rows: 1fr !important; } .sec { break-inside: avoid; box-shadow: none; } .full { display: block; } }
+.note { max-width: 40rem; margin: 1rem auto 0; font-size: .8125rem; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-in">
+    <a class="logo" href="./" aria-label="PassbookHub home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#272635"/><path d="M7 22h18M7 16h11M7 10h7" stroke="#b1e5f2" stroke-width="3" stroke-linecap="round"/></svg>
+      <b>PassbookHub</b>
+    </a>
+    <div class="tabs" role="tablist" aria-label="Document">
+      <span class="tab-thumb" aria-hidden="true"></span>
+      <button class="tab" role="tab" id="tab-terms" aria-controls="panel" data-doc="terms">Terms of Service</button>
+      <button class="tab" role="tab" id="tab-privacy" aria-controls="panel" data-doc="privacy">Privacy Policy</button>
+    </div>
+    <button class="icon-btn" id="theme" type="button" aria-label="Switch theme" title="Switch theme"></button>
+    <a class="back-link" href="./#signup">← <span>Back to sign up</span></a>
+  </div>
+  <div class="progress" id="progress"></div>
+</header>
+
+<section class="hero">
+  <div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="hero-in">
+    <span class="eyebrow"><span class="dot"></span><span id="eyebrow">Plain words, no fine print</span></span>
+    <h1><span class="swap" id="title">Terms of Service</span></h1>
+    <p class="lede" id="lede"></p>
+    <div class="chips">
+      <span class="chip"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="4" width="14" height="13" rx="2"/><path d="M3 8h14M7 2.5v3M13 2.5v3"/></svg>Effective November 5, 2026</span>
+      <span class="chip"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10" cy="10" r="7.5"/><path d="M10 6v4l2.5 2"/></svg><span id="readtime">—</span></span>
+      <span class="chip"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M10 2.5 16.5 5v4.5c0 4-2.8 6.9-6.5 8-3.7-1.1-6.5-4-6.5-8V5z"/><path d="m7.5 10 2 2 3-3.5"/></svg>Data Privacy Act of 2012 (RA 10173)</span>
+    </div>
+    <div class="mode" role="group" aria-label="View">
+      <button type="button" data-mode="quick" aria-pressed="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M11 2.5 4.5 11H10l-1 6.5L15.5 9H10z"/></svg>Quick view</button>
+      <button type="button" data-mode="full" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 2.5h7l3.5 3.5v11.5H5z"/><path d="M7.5 10h5M7.5 13h5"/></svg>Full text</button>
+    </div>
+  </div>
+</section>
+
+<main id="panel" role="tabpanel" aria-labelledby="tab-terms"></main>
+
+<footer>© <span id="year"></span> PassbookHub · Questions? <a href="mailto:passbookhub@gmail.com">passbookhub@gmail.com</a></footer>
+<button class="top" id="top" type="button" aria-label="Back to top"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 16V4M5 9l5-5 5 5"/></svg></button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- Icons ---------- */
+  var I = {
+    user: '<circle cx="10" cy="6.5" r="3"/><path d="M4 17c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/>',
+    lock: '<rect x="4" y="9" width="12" height="8.5" rx="2"/><path d="M6.5 9V6.5a3.5 3.5 0 0 1 7 0V9"/>',
+    chart: '<path d="M3 17h14M5.5 14V9M10 14V5M14.5 14v-3"/>',
+    people: '<circle cx="7" cy="6.5" r="2.5"/><circle cx="14" cy="7.5" r="2"/><path d="M2.5 16.5c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5M12 12.5c2.5-.5 5 1 5 4"/>',
+    heart: '<path d="M10 16.5s-6.5-3.8-6.5-8.3A3.6 3.6 0 0 1 10 6.1a3.6 3.6 0 0 1 6.5 2.1c0 4.5-6.5 8.3-6.5 8.3z"/>',
+    shield: '<path d="M10 2.5 16.5 5v4.5c0 4-2.8 6.9-6.5 8-3.7-1.1-6.5-4-6.5-8V5z"/><path d="m7.5 10 2 2 3-3.5"/>',
+    trash: '<path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/>',
+    tag: '<path d="M3 3h7l7 7-7 7-7-7z"/><circle cx="7" cy="7" r="1.2"/>',
+    spark: '<path d="M10 2.5c.5 3.6 1.9 5 5.5 5.5-3.6.5-5 1.9-5.5 5.5-.5-3.6-1.9-5-5.5-5.5 3.6-.5 5-1.9 5.5-5.5z"/>',
+    ban: '<circle cx="10" cy="10" r="7"/><path d="m5 5 10 10"/>',
+    chat: '<path d="M3.5 4.5h13v9h-7l-4 3v-3h-2z"/>',
+    mail: '<rect x="2.5" y="4.5" width="15" height="11" rx="1.5"/><path d="m3 5.5 7 5.5 7-5.5"/>',
+    wallet: '<rect x="2.5" y="5" width="15" height="11" rx="2"/><path d="M13 10.5h4.5M2.5 8h15"/>',
+    device: '<rect x="5.5" y="2.5" width="9" height="15" rx="2"/><path d="M9 14.5h2"/>',
+    globe: '<circle cx="10" cy="10" r="7.5"/><path d="M2.5 10h15M10 2.5c2.2 2.2 2.2 12.8 0 15M10 2.5c-2.2 2.2-2.2 12.8 0 15"/>',
+    scale: '<path d="M10 3v14M5 17h10M3 7h14M5 7l-2.5 5a2.5 2.5 0 0 0 5 0zM15 7l-2.5 5a2.5 2.5 0 0 0 5 0z"/>',
+    check: '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>',
+    x: '<path d="m5 5 10 10M15 5 5 15"/>',
+    dash: '<path d="M5 10h10"/>',
+    half: '<path d="M10 4v12"/>',
+    flip: '<path d="M4 8a6 6 0 0 1 11-2M16 12a6 6 0 0 1-11 2"/><path d="M15 3v3h-3M5 17v-3h3"/>',
+    chev: '<path d="m5 7.5 5 5 5-5"/>',
+    link: '<path d="M8.5 11.5a3 3 0 0 0 4.2 0l2.5-2.5a3 3 0 0 0-4.2-4.2l-1 1M11.5 8.5a3 3 0 0 0-4.2 0L4.8 11a3 3 0 0 0 4.2 4.2l1-1"/>',
+    search: '<circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/>',
+    sun: '<circle cx="10" cy="10" r="3.5"/><path d="M10 2v1.5M10 16.5V18M2 10h1.5M16.5 10H18M4.3 4.3l1.1 1.1M14.6 14.6l1.1 1.1M4.3 15.7l1.1-1.1M14.6 5.4l1.1-1.1"/>',
+    moon: '<path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5z"/>',
+    expand: '<path d="M6 8l4-4 4 4M6 12l4 4 4-4"/>',
+    print: '<path d="M6 7V3h8v4M6 14H4V8h12v6h-2"/><rect x="6" y="12" width="8" height="5"/>'
+  };
+  function svg(name, sw) { return '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="' + (sw || 1.7) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + I[name] + '</svg>'; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  /* ---------- Content ---------- */
+  var DOCS = {
+    terms: {
+      title: 'Terms of Service',
+      eyebrow: 'The rules, in plain words',
+      lede: 'What you can expect from PassbookHub, and what we expect from you. Flip the cards for the quick version, or switch to Full text for every detail.',
+      cards: [
+        { icon: 'chart', c: '#b1e5f2', t: 'A budgeting tool, not a bank', b: 'PassbookHub helps you track money with the 50/30/20 rule. We never hold, move or lend your money.' },
+        { icon: 'user', c: '#cfc8ff', t: 'You’re 13 or older', b: 'You need to be at least 13. If you’re under 18, ask a parent or guardian before signing up.' },
+        { icon: 'lock', c: '#c8f0cf', t: 'Keep your account safe', b: 'Use a strong password and turn on two-step verification (OTP). You’re responsible for what happens in your account.' },
+        { icon: 'people', c: '#ffd9c2', t: 'You decide who sees what', b: 'Share your dashboard with one trusted person. If you give them “Can edit”, every change they make shows in your Activity log.' },
+        { icon: 'heart', c: '#ffc8d8', t: 'Be kind and honest', b: 'No scams, harassment, fake debts or pretending to be someone else. We can remove content or accounts that break the rules.' },
+        { icon: 'trash', c: '#e2e3ee', t: 'Leave anytime', b: 'Delete your account in Settings whenever you want. That removes your budget, posts and messages for good.' }
+      ],
+      dd: {
+        yes: ['Log your real income and expenses', 'Tag people in your circle on debts that really exist', 'Report bugs or abuse to passbookhub@gmail.com', 'Use PassbookHub AI for general money questions'],
+        no: ['Use PassbookHub to scam, threaten or shame anyone', 'Share someone else’s private info or photos', 'Try to break, overload or scrape the app', 'Treat AI answers as licensed financial advice']
+      },
+      sections: [
+        { id: 't-agree', t: 'Agreeing to these terms', p: 'Using PassbookHub means you accept these rules.', h: '<p>These Terms of Service are an agreement between you and PassbookHub (“we”, “us”). By creating an account or using PassbookHub, you agree to these terms and to our <a href="#privacy" data-go="privacy">Privacy Policy</a>. If you don’t agree, please don’t use PassbookHub.</p>' },
+        { id: 't-who', t: 'Who can use PassbookHub', p: '13 and up. Under 18? Get a parent’s OK.', h: '<ul><li>You must be at least <strong>13 years old</strong>.</li><li>If you are under 18, you confirm that a parent or legal guardian has agreed to these terms for you.</li><li>You can’t use PassbookHub if we have removed your account before for breaking these terms.</li></ul>' },
+        { id: 't-account', t: 'Your account and security', p: 'Real info, your own password, and OTP on.', h: '<ul><li>Give accurate information when you sign up, and keep it up to date.</li><li>Keep your password private. We strongly recommend turning on <strong>two-step verification (OTP)</strong> with an authenticator app.</li><li>PassbookHub will <strong>never</strong> ask for your password, OTP code, PIN or full card number by message, email or chat.</li><li>You are responsible for activity in your account. Tell us right away at <a href="mailto:passbookhub@gmail.com">passbookhub@gmail.com</a> if you think someone else got in.</li></ul>' },
+        { id: 't-service', t: 'What PassbookHub is (and isn’t)', p: 'A tracker and a community, not a bank or a financial adviser.', h: '<p>PassbookHub is a free tool for tracking income, expenses, savings goals, debts and accounts using the 50/30/20 rule, plus a small social space (feed, circle and messages).</p><ul><li>We are <strong>not a bank, e-wallet, lender or payment service</strong>. Balances you enter are your own notes; we don’t connect to or move money in any bank.</li><li>Tips, health checks and <strong>PassbookHub AI</strong> answers are general information, not professional financial, tax or legal advice. AI can make mistakes. Check important decisions with a licensed professional.</li><li>Monthly statements are summaries of what you entered and are not official bank documents.</li></ul>' },
+        { id: 't-share', t: 'Sharing with your trusted person and circle', p: 'You choose one trusted person, and you can remove them anytime.', h: '<ul><li>You may share your dashboard with one person from your circle as <strong>View only</strong> or <strong>Can edit</strong>.</li><li>A trusted person with “Can edit” can add, change and delete your entries, accounts, debts and goals. Every change is recorded in your <strong>Activity log</strong> with their name.</li><li>Only share with someone you trust. You can change their access or remove them at any time in your dashboard.</li></ul>' },
+        { id: 't-content', t: 'Your content', p: 'What you post stays yours.', h: '<p>You own what you add to PassbookHub: posts, messages, photos, files and notes. You give us permission to store, process and show that content only to the people you chose (for example, your circle or the public) so the app can work. You confirm you have the right to share anything you upload.</p>' },
+        { id: 't-rules', t: 'Rules of conduct', p: 'Be honest and respectful. No scams.', h: '<p>Don’t use PassbookHub to:</p><ul><li>break the law, including scams, fraud, “investment” schemes or illegal lending;</li><li>harass, threaten, shame or bully anyone, including over a debt;</li><li>pretend to be another person or organization;</li><li>share other people’s personal information, IDs or photos without permission;</li><li>send spam, malware or links meant to steal accounts;</li><li>try to get around security, access other people’s data, or overload, copy or scrape the service.</li></ul><p>We may remove content or limit, suspend or close accounts that break these rules.</p>' },
+        { id: 't-debts', t: 'Debts and tags', p: 'Tagging someone sends them an alert. We aren’t part of the debt.', h: '<p>When you tag someone from your circle on a debt, they get a notification with the amount. Only tag people on real debts and keep the details accurate. PassbookHub only records what you enter: we are not a party to any loan or agreement between users, and we don’t collect or enforce debts.</p>' },
+        { id: 't-changes', t: 'Changes and availability', p: 'We keep improving the app, and sometimes things break.', h: '<p>PassbookHub is offered for free and “as is”. We may add, change or remove features, and the service may sometimes be slow or unavailable. We try to keep your data safe and backed up by our providers, but please keep your own copies of anything important (for example, by printing or saving monthly statements).</p>' },
+        { id: 't-liability', t: 'Disclaimers and limits of liability', p: 'Decisions about your money are yours.', h: '<p>To the extent the law allows, PassbookHub is provided without warranties of any kind, and we are not liable for indirect or consequential losses, lost money or lost data resulting from your use of the service, from decisions you make based on it, or from what other users do. Nothing in these terms limits rights you have under Philippine law that can’t be waived.</p>' },
+        { id: 't-end', t: 'Ending your account', p: 'You can leave anytime. We can close accounts that break the rules.', h: '<p>You can delete your account at any time in <strong>Settings</strong>. This permanently removes your profile, budget, posts and the messages you sent. We may suspend or close an account that breaks these terms or puts other users at risk.</p>' },
+        { id: 't-update', t: 'Updates to these terms', p: 'If we change them, we’ll tell you.', h: '<p>We may update these terms. If the changes are important, we’ll let you know in the app before they take effect. The date at the top shows the latest version. Using PassbookHub after an update means you accept the new terms.</p>' },
+        { id: 't-law', t: 'Governing law', p: 'Philippine law applies.', h: '<p>These terms are governed by the laws of the Republic of the Philippines. If there’s a disagreement, we’d like to try to resolve it with you first: email us at <a href="mailto:passbookhub@gmail.com">passbookhub@gmail.com</a>.</p>' },
+        { id: 't-contact', t: 'Contact us', p: 'One email for everything.', h: '<p>Questions, reports or feedback: <a href="mailto:passbookhub@gmail.com">passbookhub@gmail.com</a>.</p>' }
+      ]
+    },
+    privacy: {
+      title: 'Privacy Policy',
+      eyebrow: 'Your data, your call',
+      lede: 'What we collect when you use PassbookHub, why we need it, who can see it and how to delete it. Tap any row in “Who can see what” to learn more.',
+      cards: [
+        { icon: 'ban', c: '#ffc8d8', t: 'We don’t sell your data', b: 'No selling, no ads, no sharing your budget with lenders, marketers or anyone else.' },
+        { icon: 'lock', c: '#b1e5f2', t: 'Your budget is private', b: 'Entries, accounts, debts and goals are only visible to you and the one trusted person you choose.' },
+        { icon: 'shield', c: '#c8f0cf', t: 'We never see your password', b: 'Sign-in is handled by Google Firebase Authentication. Your password is stored encrypted, and we can’t read it.' },
+        { icon: 'wallet', c: '#ffd9c2', t: 'No full card numbers', b: 'For accounts we only keep the bank name, a nickname, the balance you type and, if you want, the last 4 digits.' },
+        { icon: 'spark', c: '#cfc8ff', t: 'AI chats go to Google Gemini', b: 'Questions you ask PassbookHub AI are sent to Google’s Gemini to get an answer. Your chat history stays in your browser.' },
+        { icon: 'trash', c: '#e2e3ee', t: 'Delete means delete', b: 'Deleting your account removes your profile, budget, posts and the messages you sent from our database.' }
+      ],
+      matrix: {
+        cols: ['You', 'Trusted person', 'Circle', 'Everyone'],
+        rows: [
+          { icon: 'wallet', n: 'Budget entries, accounts, debts, goals', v: ['yes', 'opt', 'no', 'no'], d: 'Only you, plus your trusted person if you share your dashboard with them. With “Can edit”, they can change them too, and the Activity log shows who changed what.' },
+          { icon: 'chart', n: 'Activity log', v: ['yes', 'opt', 'no', 'no'], d: 'A record of changes to your dashboard. Your trusted person can read it; only you can clear it.' },
+          { icon: 'user', n: 'Name, username, photo, bio', v: ['yes', 'yes', 'yes', 'yes'], d: 'Your public profile, so people can find you and send circle requests.' },
+          { icon: 'mail', n: 'Email and password', v: ['yes', 'no', 'no', 'no'], d: 'Used only to sign you in and send account emails like verification and password reset. Never shown to other members.' },
+          { icon: 'heart', n: 'Birthday and total savings', v: ['yes', 'no', 'opt', 'no'], d: 'Private by default. You can choose to show your birthday or total savings to your circle in Circle settings.' },
+          { icon: 'chat', n: 'Messages and attachments', v: ['yes', 'no', 'opt', 'no'], d: 'Only you and the person you’re chatting with, who must be in your circle.' },
+          { icon: 'people', n: 'Posts', v: ['yes', 'opt', 'opt', 'opt'], d: 'You pick each post’s audience: Only me, Circle or Public.' },
+          { icon: 'device', n: 'Online status', v: ['yes', 'no', 'yes', 'no'], d: 'People in your circle can see when you were last active, or the status you set.' }
+        ]
+      },
+      sections: [
+        { id: 'p-intro', t: 'About this policy', p: 'How we handle your personal data, under Philippine law.', h: '<p>This policy explains how PassbookHub collects, uses, shares and protects your personal information. We follow the <strong>Data Privacy Act of 2012 (Republic Act No. 10173)</strong> and the rules of the National Privacy Commission. By using PassbookHub, you agree to the handling of your data described here.</p>' },
+        { id: 'p-collect', t: 'What we collect', p: 'Only what you give us, plus what the app needs to run safely.', h: '<ul><li><strong>Account:</strong> name, email, username, birthday, and your password (stored encrypted by Firebase; we can’t see it). If you use “Continue with Google”, we receive your name, email and Google account ID.</li><li><strong>Profile:</strong> photo, cover photo, bio, education and work, your preferred currency and, if you add it, your address.</li><li><strong>Money data:</strong> income and expense entries, bank and e-wallet accounts (bank name, nickname, balance and optional last 4 digits), credit cards and loans, debts, savings goals and the Activity log.</li><li><strong>Social:</strong> your circle, requests, posts, messages, photos and files you send, reactions, notes, alerts and your online status.</li><li><strong>PassbookHub AI:</strong> the questions you type and the answers you get.</li><li><strong>Technical:</strong> security signals from Firebase App Check and Google reCAPTCHA Enterprise to block bots, and basic logs (like IP address) kept by our hosting and database providers.</li><li><strong>On your device:</strong> small settings saved in your browser, such as your theme, language, “hide amounts” choice and AI chat history.</li></ul>' },
+        { id: 'p-use', t: 'How we use it', p: 'To run the app for you, and nothing else.', h: '<ul><li>to create and secure your account, including email verification and two-step verification (OTP);</li><li>to show your dashboard, charts, health checks and monthly statements;</li><li>to share what you chose to share with your trusted person, circle or the public;</li><li>to send notifications you need, like circle requests, debt tags and trust invitations;</li><li>to answer your questions in PassbookHub AI;</li><li>to prevent spam, abuse and fraud, and to fix problems.</li></ul><p>We don’t use your data for advertising, and we don’t build profiles to sell.</p>' },
+        { id: 'p-share', t: 'Who we share it with', p: 'Only the services that make PassbookHub work.', h: '<p>We never sell your data. We only share it with the people you choose (see “Who can see what”) and with these service providers, who process it for us:</p><ul><li><strong>Google Firebase:</strong> Authentication (sign-in), Cloud Firestore (database), App Check and AI Logic (connects PassbookHub AI to Google Gemini).</li><li><strong>Google reCAPTCHA Enterprise:</strong> checks that requests come from real people.</li><li><strong>GitHub Pages:</strong> hosts the PassbookHub website.</li></ul><p>These providers may store data on servers outside the Philippines. We may also share information if the law requires it, for example a valid court order.</p>' },
+        { id: 'p-security', t: 'How we protect it', p: 'Encryption, strict access rules, and OTP.', h: '<ul><li>Data travels over encrypted connections (HTTPS).</li><li>Database security rules make sure each person can only read and change their own data, plus what someone explicitly shared with them.</li><li>Two-step verification (OTP) with an authenticator app protects your sign-in.</li><li>We never ask for your password, OTP code, PIN or full card number. If someone does, it’s not us.</li></ul><p>No system is perfectly secure. If we learn of a breach that affects you, we’ll notify you and the National Privacy Commission as the law requires.</p>' },
+        { id: 'p-keep', t: 'How long we keep it, and deleting it', p: 'Until you delete it.', h: '<p>We keep your data while your account is active. You can edit or delete most things at any time. When you delete your account in <strong>Settings</strong>, we remove your profile, budget data, Activity log, posts, circle links and the messages and files you sent. Copies in our providers’ backups may remain for a short time before they are erased. Messages other people sent you belong to them and stay in their account.</p>' },
+        { id: 'p-rights', t: 'Your rights', p: 'You can see, fix, download or delete your data.', h: '<p>Under the Data Privacy Act, you have the right to:</p><ul><li><strong>be informed</strong> about how your data is used (this policy);</li><li><strong>access</strong> your data and get a copy of it;</li><li><strong>correct</strong> wrong or outdated data;</li><li><strong>object</strong> to processing, and withdraw consent;</li><li><strong>erase or block</strong> your data;</li><li><strong>data portability</strong>, to get your data in a usable format;</li><li><strong>claim damages</strong> if your data is misused; and</li><li><strong>file a complaint</strong> with the National Privacy Commission at <a href="https://privacy.gov.ph" target="_blank" rel="noopener">privacy.gov.ph</a>.</li></ul><p>To use any of these rights, email <a href="mailto:passbookhub@gmail.com">passbookhub@gmail.com</a>.</p>' },
+        { id: 'p-kids', t: 'Young people', p: 'Not for children under 13.', h: '<p>PassbookHub is not meant for children under 13, and we don’t knowingly collect their data. Users under 18 should have a parent or guardian’s permission. If you think a child under 13 has an account, email us and we will delete it.</p>' },
+        { id: 'p-device', t: 'Cookies and browser storage', p: 'No ad trackers. Just a few settings in your browser.', h: '<p>We don’t use advertising or tracking cookies. PassbookHub saves a few settings in your browser’s local storage (theme, language, hidden amounts, sidebar, AI chat history), and Firebase and reCAPTCHA use their own storage to keep you signed in and to block bots. Clearing your browser data removes these settings.</p>' },
+        { id: 'p-changes', t: 'Changes to this policy', p: 'If we change it, we’ll tell you.', h: '<p>If we make important changes, we’ll tell you in the app before they take effect. The date at the top always shows the current version.</p>' },
+        { id: 'p-contact', t: 'Contact and data protection officer', p: 'Email us anytime.', h: '<p>For privacy questions or requests, contact our data protection officer at <a href="mailto:passbookhub@gmail.com">passbookhub@gmail.com</a>.</p>' }
+      ]
+    }
+  };
+
+  /* ---------- State ---------- */
+  var doc = location.hash === '#privacy' ? 'privacy' : 'terms';
+  var mode = 'quick';
+  var main = document.getElementById('panel');
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var thumb = document.querySelector('.tab-thumb');
+  var observers = [];
+
+  function toast(text) {
+    var t = document.getElementById('toast');
+    t.textContent = text; t.classList.add('show');
+    clearTimeout(toast.timer); toast.timer = setTimeout(function () { t.classList.remove('show'); }, 1800);
+  }
+
+  function moveThumb() {
+    var on = tabs.find(function (t) { return t.dataset.doc === doc; });
+    thumb.style.left = on.offsetLeft + 'px';
+    thumb.style.width = on.offsetWidth + 'px';
+  }
+
+  function words(d) {
+    var text = d.sections.map(function (s) { return s.h.replace(/<[^>]+>/g, ' '); }).join(' ');
+    return text.split(/\s+/).length;
+  }
+
+  /* ---------- Render ---------- */
+  function render(scrollTop) {
+    var d = DOCS[doc];
+    observers.forEach(function (o) { o.disconnect(); }); observers = [];
+    document.title = d.title + ' · PassbookHub';
+    tabs.forEach(function (t) { t.setAttribute('aria-selected', String(t.dataset.doc === doc)); t.tabIndex = t.dataset.doc === doc ? 0 : -1; });
+    main.setAttribute('aria-labelledby', 'tab-' + doc);
+    moveThumb();
+    var title = document.getElementById('title');
+    title.textContent = d.title;
+    title.animate && title.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 400, easing: 'ease-out' });
+    document.getElementById('eyebrow').textContent = d.eyebrow;
+    document.getElementById('lede').textContent = d.lede;
+    document.getElementById('readtime').textContent = Math.max(1, Math.round(words(d) / 200)) + ' min full read · 30 sec quick view';
+    document.querySelectorAll('.mode button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === mode)); });
+
+    var html = '<div class="panel">';
+    if (mode === 'quick') {
+      html += '<div class="section-title"><h2>The short version</h2><p>Tap a card to flip it</p></div><div class="cards">';
+      d.cards.forEach(function (c, i) {
+        html += '<button class="card" type="button" style="--c:' + c.c + ';transition-delay:' + (i * 60) + 'ms" aria-pressed="false">' +
+          '<span class="face front"><span class="card-icon">' + svg(c.icon) + '</span><h3>' + esc(c.t) + '</h3><span class="hint">' + svg('flip', 1.6).replace('<svg', '<svg width="14" height="14"') + ' Tap to flip</span></span>' +
+          '<span class="face back"><p>' + esc(c.b) + '</p><span class="hint">Tap to flip back</span></span></button>';
+      });
+      html += '</div>';
+      if (d.matrix) {
+        html += '<div class="section-title"><h2>Who can see what</h2><p>Tap a row for details</p></div><div class="matrix" id="matrix"><div class="mx-head"><span>Your data</span>' +
+          d.matrix.cols.map(function (c) { return '<span>' + esc(c) + '</span>'; }).join('') + '</div>';
+        d.matrix.rows.forEach(function (r, i) {
+          html += '<button class="mx-row" type="button" aria-expanded="false" aria-controls="mx-' + i + '"><span class="mx-name">' + svg(r.icon) + esc(r.n) + '</span>' +
+            r.v.map(function (v, j) {
+              var label = { yes: 'Yes', opt: 'Only if you choose', no: 'No' }[v];
+              return '<span class="mx-cell"><span class="pip ' + v + '" style="transition-delay:' + (i * 50 + j * 40) + 'ms" title="' + d.matrix.cols[j] + ': ' + label + '" aria-label="' + d.matrix.cols[j] + ': ' + label + '">' + svg(v === 'yes' ? 'check' : v === 'opt' ? 'half' : 'dash', 2.4) + '</span></span>';
+            }).join('') + '</button><div class="mx-detail" id="mx-' + i + '"><div><p>' + esc(r.d) + '</p></div></div>';
+        });
+        html += '<div class="legend"><span><span class="pip yes">' + svg('check', 2.4) + '</span>Can see</span><span><span class="pip opt">' + svg('half', 2.4) + '</span>Only if you choose</span><span><span class="pip no">' + svg('dash', 2.4) + '</span>Can’t see</span></div></div>';
+      }
+      if (d.dd) {
+        html += '<div class="section-title"><h2>Do’s and don’ts</h2><p>The rules that matter most</p></div><div class="dd" id="dd">' +
+          '<div class="dd-col do"><h3>' + '👍 Please do' + '</h3><ul>' + d.dd.yes.map(function (x, i) { return '<li style="transition-delay:' + i * 80 + 'ms"><span class="mark">' + svg('check', 2.6) + '</span>' + esc(x) + '</li>'; }).join('') + '</ul></div>' +
+          '<div class="dd-col dont"><h3>' + '🚫 Please don’t' + '</h3><ul>' + d.dd.no.map(function (x, i) { return '<li style="transition-delay:' + (i * 80 + 160) + 'ms"><span class="mark">' + svg('x', 2.6) + '</span>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>';
+      }
+      html += '<div class="section-title"><h2>Want every detail?</h2></div><button class="btn primary" type="button" data-mode="full">' + svg('expand') + 'Read the full ' + esc(d.title) + '</button>';
+    } else {
+      html += '<div class="full"><nav class="toc" aria-label="Sections"><p>On this page</p>' +
+        d.sections.map(function (s, i) { return '<a href="#' + s.id + '" data-id="' + s.id + '"><span class="n">' + (i + 1) + '</span>' + esc(s.t) + '</a>'; }).join('') + '</nav><div>' +
+        '<div class="tools"><label class="search">' + svg('search') + '<input id="q" type="search" placeholder="Search ' + esc(d.title) + '" aria-label="Search" autocomplete="off"><kbd>/</kbd></label>' +
+        '<span class="count" id="count" aria-live="polite"></span>' +
+        '<button class="btn" type="button" id="toggleAll">' + svg('expand') + '<span>Open all</span></button>' +
+        '<button class="btn" type="button" id="print">' + svg('print') + 'Print</button></div><div id="secs">' +
+        d.sections.map(function (s, i) {
+          return '<section class="sec" id="' + s.id + '"><button class="sec-head" type="button" aria-expanded="false" aria-controls="' + s.id + '-b"><span class="sec-num">' + (i + 1) + '</span><h3>' + esc(s.t) + '</h3>' +
+            '<span class="copy" role="button" tabindex="0" data-copy="' + s.id + '" aria-label="Copy link to this section">' + svg('link') + 'Link</span>' + svg('chev').replace('<svg', '<svg class="chev"') + '</button>' +
+            '<div class="sec-body" id="' + s.id + '-b"><div><div class="sec-inner"><p class="plain"><b>In short</b><span>' + esc(s.p) + '</span></p><div class="txt">' + s.h + '</div></div></div></div></section>';
+        }).join('') + '<p class="empty" id="empty" hidden>No matches. Try another word.</p></div></div></div>';
+    }
+    html += '<div class="end" id="end"><div class="confetti" id="confetti"></div><svg class="ring" viewBox="0 0 80 80" aria-hidden="true"><circle class="track" cx="40" cy="40" r="32"/><circle class="val" id="ringval" cx="40" cy="40" r="32" stroke-dasharray="201" stroke-dashoffset="201"/><text x="40" y="46" text-anchor="middle" id="ringtxt">0%</text></svg>' +
+      '<h2 id="endtitle">Keep scrolling…</h2><p>' + (doc === 'terms' ? 'Thanks for reading the rules. Next, see how we protect your data.' : 'That’s everything about your data. Questions? We’re one email away.') + '</p>' +
+      '<button class="btn" type="button" id="next">' + (doc === 'terms' ? 'Next: Privacy Policy →' : 'Done, back to PassbookHub') + '</button></div>';
+    html += '<p class="note">This page is a plain-language summary of how PassbookHub works today. If anything here doesn’t match what you see in the app, email us and we’ll fix it.</p></div>';
+    main.innerHTML = html;
+    if (scrollTop) window.scrollTo({ top: 0 });
+    wire();
+  }
+
+  /* ---------- Interactions ---------- */
+  function reveal(el, cls) {
+    if (!el) return;
+    if (!('IntersectionObserver' in window)) { el.classList.add(cls || 'in'); return; }
+    var o = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add(cls || 'in'); o.unobserve(e.target); } }); }, { threshold: 0.15 });
+    o.observe(el); observers.push(o);
+  }
+
+  function wire() {
+    main.querySelectorAll('.card').forEach(function (card) {
+      reveal(card);
+      card.addEventListener('click', function () {
+        card.style.transform = '';
+        var on = card.classList.toggle('flipped');
+        card.setAttribute('aria-pressed', String(on));
+      });
+      card.addEventListener('mousemove', function (e) {
+        if (card.classList.contains('flipped')) return;
+        var r = card.getBoundingClientRect(), x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
+        card.style.transform = 'rotateX(' + (-y * 8) + 'deg) rotateY(' + (x * 10) + 'deg)';
+      });
+      card.addEventListener('mouseleave', function () { card.style.transform = ''; });
+    });
+    reveal(document.getElementById('matrix'));
+    reveal(document.getElementById('dd'));
+    main.querySelectorAll('.mx-row').forEach(function (row) {
+      row.addEventListener('click', function () {
+        var open = row.getAttribute('aria-expanded') !== 'true';
+        row.setAttribute('aria-expanded', String(open));
+        document.getElementById(row.getAttribute('aria-controls')).classList.toggle('open', open);
+      });
+    });
+    main.querySelectorAll('[data-mode]').forEach(function (b) { b.addEventListener('click', function () { setMode(b.dataset.mode); }); });
+    main.querySelectorAll('[data-go]').forEach(function (a) { a.addEventListener('click', function (e) { e.preventDefault(); setDoc(a.dataset.go); }); });
+
+    var secs = Array.prototype.slice.call(main.querySelectorAll('.sec'));
+    function setOpen(sec, open) {
+      sec.classList.toggle('open', open);
+      sec.querySelector('.sec-head').setAttribute('aria-expanded', String(open));
+    }
+    function syncToggle() {
+      var btn = document.getElementById('toggleAll');
+      if (btn) btn.querySelector('span').textContent = secs.every(function (s) { return s.classList.contains('open'); }) ? 'Close all' : 'Open all';
+    }
+    secs.forEach(function (sec, i) {
+      if (i === 0) setOpen(sec, true);
+      sec.querySelector('.sec-head').addEventListener('click', function (e) {
+        if (e.target.closest('.copy')) return;
+        setOpen(sec, !sec.classList.contains('open')); syncToggle();
+      });
+    });
+    main.querySelectorAll('.copy').forEach(function (c) {
+      function copy(e) {
+        e.stopPropagation();
+        var url = location.href.split('#')[0] + '#' + c.dataset.copy;
+        (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(function () { toast('Link copied'); }, function () { toast(url); });
+      }
+      c.addEventListener('click', copy);
+      c.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copy(e); } });
+    });
+    var toggleAll = document.getElementById('toggleAll');
+    if (toggleAll) toggleAll.addEventListener('click', function () {
+      var all = secs.every(function (s) { return s.classList.contains('open'); });
+      secs.forEach(function (s) { setOpen(s, !all); }); syncToggle();
+    });
+    var pr = document.getElementById('print');
+    if (pr) pr.addEventListener('click', function () { secs.forEach(function (s) { setOpen(s, true); }); syncToggle(); setTimeout(function () { window.print(); }, 350); });
+    main.querySelectorAll('.toc a').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        var sec = document.getElementById(a.dataset.id);
+        setOpen(sec, true); syncToggle();
+        sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+    /* Scroll spy */
+    if (secs.length && 'IntersectionObserver' in window) {
+      var spy = new IntersectionObserver(function (es) {
+        es.forEach(function (e) {
+          if (!e.isIntersecting) return;
+          main.querySelectorAll('.toc a').forEach(function (a) { a.classList.toggle('on', a.dataset.id === e.target.id); });
+        });
+      }, { rootMargin: '-30% 0px -60% 0px' });
+      secs.forEach(function (s) { spy.observe(s); }); observers.push(spy);
+    }
+    /* Search with highlights */
+    var q = document.getElementById('q');
+    if (q) {
+      secs.forEach(function (s) { s._txt = s.querySelector('.txt').innerHTML; s._plain = s.querySelector('.plain span').textContent; });
+      q.addEventListener('input', function () {
+        var term = q.value.trim();
+        var re = term ? new RegExp('(' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi') : null;
+        var shown = 0, hits = 0;
+        secs.forEach(function (s) {
+          var txt = s.querySelector('.txt');
+          txt.innerHTML = s._txt;
+          if (!re) { s.hidden = false; return; }
+          var title = s.querySelector('h3').textContent;
+          var text = txt.textContent + ' ' + title + ' ' + s._plain;
+          var m = text.match(re);
+          s.hidden = !m;
+          if (m) {
+            shown++; hits += m.length; setOpen(s, true);
+            var walker = document.createTreeWalker(txt, NodeFilter.SHOW_TEXT), nodes = [], n;
+            while ((n = walker.nextNode())) nodes.push(n);
+            nodes.forEach(function (node) {
+              if (!re.test(node.nodeValue)) return; re.lastIndex = 0;
+              var span = document.createElement('span');
+              span.innerHTML = esc(node.nodeValue).replace(re, '<mark>$1</mark>');
+              node.parentNode.replaceChild(span, node);
+            });
+          }
+        });
+        document.getElementById('count').textContent = re ? hits + (hits === 1 ? ' match' : ' matches') : '';
+        document.getElementById('empty').hidden = !re || shown > 0;
+        syncToggle();
+      });
+    }
+    document.getElementById('next').addEventListener('click', function () {
+      if (doc === 'terms') { setDoc('privacy'); return; }
+      window.close();
+      setTimeout(function () { location.href = './#signup'; }, 150);
+    });
+    /* Deep link to a section */
+    var target = location.hash.slice(1);
+    if (target && document.getElementById(target) && document.getElementById(target).classList.contains('sec')) {
+      setOpen(document.getElementById(target), true);
+      setTimeout(function () { document.getElementById(target).scrollIntoView({ block: 'start' }); }, 50);
+    }
+    celebrated = false;
+    onScroll();
+  }
+
+  function setDoc(next) {
+    if (next === doc) return;
+    doc = next;
+    history.replaceState(null, '', '#' + doc);
+    render(true);
+  }
+  function setMode(next) {
+    mode = next;
+    render(false);
+    var top = document.querySelector('.mode').getBoundingClientRect().top + window.scrollY - 90;
+    window.scrollTo({ top: top, behavior: 'smooth' });
+  }
+
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () { setDoc(t.dataset.doc); });
+    t.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); setDoc(doc === 'terms' ? 'privacy' : 'terms'); document.getElementById('tab-' + doc).focus(); }
+    });
+  });
+  document.querySelectorAll('.mode button').forEach(function (b) { b.addEventListener('click', function () { setMode(b.dataset.mode); }); });
+
+  /* Deep links: #privacy, #terms, or a section id */
+  (function () {
+    var h = location.hash.slice(1);
+    if (/^p-/.test(h)) { doc = 'privacy'; mode = 'full'; }
+    if (/^t-/.test(h)) { doc = 'terms'; mode = 'full'; }
+  })();
+  window.addEventListener('hashchange', function () {
+    var h = location.hash.slice(1);
+    if (h === 'terms' || h === 'privacy') setDoc(h);
+  });
+
+  /* Progress, back to top, end-of-page celebration */
+  var celebrated = false;
+  function onScroll() {
+    var max = document.documentElement.scrollHeight - innerHeight;
+    var pct = max > 0 ? Math.min(1, scrollY / max) : 1;
+    document.getElementById('progress').style.width = (pct * 100) + '%';
+    document.getElementById('top').classList.toggle('show', scrollY > 600);
+    var val = document.getElementById('ringval');
+    if (val) {
+      val.style.strokeDashoffset = String(201 - 201 * pct);
+      document.getElementById('ringtxt').textContent = Math.round(pct * 100) + '%';
+      if (pct > 0.98 && !celebrated) {
+        celebrated = true;
+        document.getElementById('endtitle').textContent = 'You made it to the end 🎉';
+        burst();
+      }
+    }
+  }
+  function burst() {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var box = document.getElementById('confetti');
+    var colors = ['#b1e5f2', '#cfc8ff', '#ffd9c2', '#c8f0cf', '#ffc8d8', '#fab219'];
+    for (var i = 0; i < 40; i++) {
+      var p = document.createElement('i');
+      p.style.left = Math.random() * 100 + '%';
+      p.style.background = colors[i % colors.length];
+      p.style.animationDelay = Math.random() * 0.5 + 's';
+      p.style.transform = 'rotate(' + Math.random() * 360 + 'deg)';
+      box.appendChild(p);
+    }
+    setTimeout(function () { box.innerHTML = ''; }, 3200);
+  }
+  addEventListener('scroll', onScroll, { passive: true });
+  addEventListener('resize', function () { moveThumb(); onScroll(); });
+  document.getElementById('top').addEventListener('click', function () { scrollTo({ top: 0, behavior: 'smooth' }); });
+  addEventListener('keydown', function (e) {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+      var q = document.getElementById('q');
+      if (!q) { setMode('full'); q = document.getElementById('q'); }
+      if (q) { e.preventDefault(); q.focus(); }
+    }
+  });
+
+  /* Theme: same setting as the app */
+  var themeBtn = document.getElementById('theme');
+  function isDark() {
+    var t = document.documentElement.dataset.theme;
+    return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function drawTheme() { themeBtn.innerHTML = svg(isDark() ? 'sun' : 'moon'); }
+  themeBtn.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('pbh.theme', next); } catch (e) {}
+    drawTheme();
+  });
+  drawTheme();
+
+  document.getElementById('year').textContent = new Date().getFullYear();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(moveThumb);
+  render(false);
+})();
+</script>
+</body>
+</html>

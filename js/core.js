@@ -430,7 +430,7 @@ window.BT = (function () {
         birthday: input.birthday,
         username: input.username,
         profileDone: false,
-        needsMfa: true,
+        needsMfa: input.mfa !== false,
         avatar: null,
         bio: '',
         currency: guessCurrency(),

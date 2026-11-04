@@ -257,8 +257,9 @@
     const user = BT.currentUser();
     if (!user) return ['signin', 'signup', 'forgot'].indexOf(wanted) !== -1 ? wanted : 'signin';
     if (!user.verified) return 'verify';
-    if (!user.profileDone) return 'setup';
+    /* Two-step verification (OTP) comes right after the email is verified, as promised on the password step. */
     if (user.needsMfa && !BT.mfaOn() && !state.mfaSkipped) return 'secure';
+    if (!user.profileDone) return 'setup';
     if (/^u\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'person';
     if (/^chat\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'chat';
     if (/^d\/[A-Za-z0-9_]{3,20}$/.test(wanted)) return 'shared';
@@ -502,7 +503,7 @@
       h('span', { class: 'brand step-brand' }, 'PassbookHub'),
       h('header', { class: 'intro' },
         h('h1', null, 'Secure your account'),
-        h('p', { class: 'muted' }, 'One last step, ' + user.name.split(' ')[0] + '. Turn on two-step verification so only you can sign in, even if someone learns your password. You’ll enter a code from your authenticator app when you sign in.')),
+        h('p', { class: 'muted' }, 'Almost there, ' + user.name.split(' ')[0] + '. Turn on two-step verification (OTP) so only you can sign in, even if someone learns your password. Scan the QR code with an authenticator app, then enter the 6-digit code it shows.')),
       totpSetup({
         onDone: function () { render(); },
         onSkip: function () { state.mfaSkipped = true; render(); }
@@ -566,6 +567,7 @@
         h('footer', { class: 'auth-footer' },
           h('span', null, '\u00a9 ' + new Date().getFullYear() + ' PassbookHub'),
           h('span', null, 'Half for needs, some for wants, the rest for later.'),
+          h('a', { class: 'auth-legal', href: 'legal.html', target: '_blank', rel: 'noopener' }, 'Terms & Privacy'),
           languageButton())));
   }
 
@@ -621,7 +623,7 @@
   function authHero(signin) {
     const cards = signin
       ? [['50%', 'Needs: rent, bills and groceries'], ['30%', 'Wants: the fun stuff, guilt-free'], ['20%', 'Savings: future you says thanks']]
-      : [['1', 'Create your account'], ['2', 'Verify your email'], ['3', 'Set up your profile']];
+      : [['1', 'Create your account'], ['2', 'Verify email and turn on OTP'], ['3', 'Set up your profile']];
     return h('aside', { class: 'auth-hero', 'aria-hidden': 'true' },
       h('div', { class: 'auth-glow' }, h('span'), h('span')),
       h('span', { class: 'auth-wordmark' }, logoMark('auth-wordmark-mark'), 'PassbookHub'),
@@ -784,6 +786,25 @@
       if (base.length >= 3) { el.value = base; checkUsername(); }
     }
 
+    /* Two-step verification (OTP). Firebase only lets a verified account add an authenticator,
+       so the code itself is set up right after the email link, before anything else. */
+    const otpSwitch = h('input', { type: 'checkbox', id: 'f-mfa', name: 'mfa', class: 'su-switch-input', checked: true });
+    const otpNote = h('p', { class: 'su-otp-note small' });
+    function drawOtp() {
+      otpCard.dataset.on = String(otpSwitch.checked);
+      otpNote.textContent = otpSwitch.checked
+        ? 'Next: verify your email, then scan a QR code with Google Authenticator, Microsoft Authenticator or similar. Every sign-in will ask for its 6-digit code.'
+        : 'Not recommended. Without OTP, anyone who learns your password can open your budget. You can turn it on later in Settings.';
+    }
+    const otpCard = h('div', { class: 'su-otp' },
+      h('div', { class: 'su-otp-head' },
+        h('span', { class: 'su-otp-icon', 'aria-hidden': 'true' }, h('span', { class: 'su-otp-digits' }, '••• •••')),
+        h('label', { for: 'f-mfa', class: 'su-otp-text' }, h('strong', null, 'Two-step verification (OTP)'), h('span', { class: 'small muted' }, 'Recommended')),
+        h('span', { class: 'su-switch' }, otpSwitch, h('span', { class: 'su-switch-ui', 'aria-hidden': 'true' }))),
+      otpNote);
+    otpSwitch.addEventListener('change', drawOtp);
+    drawOtp();
+
     const panes = [
       h('div', { class: 'su-pane' },
         field({ name: 'name', label: 'Full name', attrs: { autocomplete: 'name', maxlength: 60, placeholder: 'Juan Dela Cruz' } })),
@@ -799,9 +820,14 @@
       h('div', { class: 'su-pane' },
         field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'new-password', maxlength: 128, placeholder: 'Password' } }),
         meter,
+        otpCard,
         h('div', { class: 'su-fine small' },
           h('p', null, 'Your budget is private. Only you, and the one trusted person you choose, can see your entries, goals and debts.'),
-          h('p', null, 'By tapping Submit, you agree to create a PassbookHub account and to let us store the information you give us so the app can work for you.')))
+          h('p', null, 'By tapping Submit, you agree to create a PassbookHub account and to PassbookHub’s ',
+            h('a', { href: 'legal.html#terms', target: '_blank', rel: 'noopener' }, 'Terms'), ' and ',
+            h('a', { href: 'legal.html#privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'), '.'),
+          h('p', null, 'The ', h('a', { href: 'legal.html#privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'),
+            ' explains what we collect when you create an account and how it’s used. We don’t sell your data or show ads.')))
     ];
 
     const next = h('button', { class: 'btn primary full su-next', type: 'submit' }, 'Next');
@@ -861,7 +887,8 @@
         birthday: form.elements.birthday.value,
         username: form.elements.username.value.trim(),
         password: form.elements.password.value,
-        email: form.elements.email.value.trim().toLowerCase()
+        email: form.elements.email.value.trim().toLowerCase(),
+        mfa: otpSwitch.checked
       };
     }
     function go(n) {
