@@ -4071,8 +4071,39 @@
     };
   }
 
+  /** Adds Activity log entries to a book's add, edit and delete calls. Changes the book in place so getters stay live. */
+  function withActivity(book) {
+    if (book.logged) return book;
+    const owner = book.mine ? null : book.owner.id;
+    const add = book.add, update = book.update, remove = book.remove, restore = book.restore;
+    book.add = async function (tx) {
+      const r = await add(tx);
+      SOC.logActivity(owner, { action: 'add', what: 'tx', label: tx.desc, sub: tx.type, cents: tx.cents });
+      return r;
+    };
+    book.update = async function (id, changes) {
+      const before = book.list().find(function (x) { return x.id === id; }) || {};
+      const prev = { cents: before.cents, desc: before.desc, type: before.type };
+      const r = await update(id, changes);
+      SOC.logActivity(owner, { action: 'edit', what: 'tx', label: changes.desc || prev.desc, sub: changes.type || prev.type, cents: changes.cents || prev.cents, prevCents: prev.cents });
+      return r;
+    };
+    book.remove = async function (id) {
+      const r = await remove(id);
+      if (r) SOC.logActivity(owner, { action: 'delete', what: 'tx', label: r.desc, sub: r.type, cents: r.cents });
+      return r;
+    };
+    book.restore = async function (tx) {
+      const r = await restore(tx);
+      SOC.logActivity(owner, { action: 'add', what: 'tx', label: tx.desc + ' (restored)', sub: tx.type, cents: tx.cents });
+      return r;
+    };
+    book.logged = true;
+    return book;
+  }
+
   function viewDashboard(_, given) {
-    const book = given && given.list ? given : myBook();
+    const book = withActivity(given && given.list ? given : myBook());
     const user = book.owner;
     const money = function (cents) { return BT.formatMoney(cents, book.currency); };
     const monthHeading = h('h2', { 'aria-live': 'polite' });
@@ -4583,7 +4614,7 @@
         onclick: async function () {
           const ok = await ask({ title: 'Delete ' + existing.name + '?', body: 'This removes the account from your Savings tracker. You can’t undo this.', yes: 'Delete', no: 'Keep' });
           if (!ok) return;
-          try { await SOC.deleteAccount(book.mine ? null : book.owner.id, existing.id); toast('Account deleted.'); close(); }
+          try { await SOC.deleteAccount(book.mine ? null : book.owner.id, existing.id); SOC.logActivity(book.mine ? null : book.owner.id, { action: 'delete', what: 'account', label: existing.name, sub: existing.type, cents: existing.cents }); toast('Account deleted.'); close(); }
           catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
         }
       }, 'Delete') : null;
@@ -4612,6 +4643,7 @@
           try {
             if (existing) await SOC.updateAccount(book.mine ? null : book.owner.id, existing.id, data);
             else await SOC.addAccount(book.mine ? null : book.owner.id, data);
+            SOC.logActivity(book.mine ? null : book.owner.id, { action: existing ? 'edit' : 'add', what: 'account', label: data.name, sub: data.type, cents: data.cents, prevCents: existing ? existing.cents : undefined });
             toast(existing ? 'Account updated.' : BANKS.find(data.bank).name + ' account added.');
             if (!existing && tab !== 'tracker' && tab !== data.type) setTab(data.type);
             close();

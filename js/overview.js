@@ -16,6 +16,9 @@ window.OVERVIEW = (function () {
     wedding: '<circle cx="7.5" cy="11.5" r="4.5"/><circle cx="12.5" cy="11.5" r="4.5"/><path d="m8.5 3.5 1.5 2 1.5-2"/>',
     business: '<rect x="2.5" y="6.5" width="15" height="10" rx="1.5"/><path d="M7.5 6.5v-2h5v2M2.5 11h15"/>',
     retirement: '<circle cx="10" cy="10" r="7.5"/><path d="M10 6v4l3 2"/>',
+    family: '<circle cx="7" cy="6" r="2.25"/><circle cx="13.5" cy="7" r="1.75"/><path d="M3 16.5v-2.5a4 4 0 0 1 8 0v2.5M11 16.5v-2a2.5 2.5 0 0 1 5 0v2"/>',
+    personal: '<circle cx="10" cy="6.5" r="3"/><path d="M4 17c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/>',
+    health: '<path d="M10 16.5s-6.5-3.8-6.5-8.3A3.6 3.6 0 0 1 10 6.1a3.6 3.6 0 0 1 6.5 2.1c0 4.5-6.5 8.3-6.5 8.3z"/><path d="M6.5 10h2l1-1.5 1.5 3 1-1.5h1.5"/>',
     other: '<path d="M4 8.5c0-2.5 2.5-4.5 6-4.5s6 2 6 4.5v3c0 1.5-1 2.5-2.5 3l.5 2.5h-2.5l-.5-1.5H9l-.5 1.5H6l.5-2.5C5 14 4 13 4 11.5z"/><circle cx="12.5" cy="8.5" r=".6" fill="currentColor"/>'
   };
 
@@ -75,6 +78,11 @@ window.OVERVIEW = (function () {
     const data = { accounts: null, debts: null, goals: null, debtError: null, goalError: null };
     let range = 6;
     let debtDir = 'owe';
+    let goalCat = 'all';
+    let actWhat = 'all';
+    let actLimit = 15;
+    let actStop = null;
+    const myUid = function () { return window.FB.auth.currentUser && window.FB.auth.currentUser.uid; };
 
     const el = h('div', { class: 'ov' });
     const healthBox = h('div');
@@ -83,7 +91,9 @@ window.OVERVIEW = (function () {
     const recentBox = h('section', { class: 'ov-card', 'aria-labelledby': 'ov-recent-h' });
     const debtBox = h('section', { class: 'ov-card', 'aria-labelledby': 'ov-debt-h' });
     const goalBox = h('section', { class: 'ov-card ov-goals-card', 'aria-labelledby': 'ov-goal-h' });
-    el.append(healthBox, kpiBox, chartBox, h('div', { class: 'ov-split' }, recentBox, debtBox), goalBox);
+    const stmtBox = h('section', { class: 'ov-card ov-stmt-card', 'aria-labelledby': 'ov-stmt-h' });
+    const actBox = h('section', { class: 'ov-card ov-act-card', 'aria-labelledby': 'ov-act-h' });
+    el.append(healthBox, kpiBox, chartBox, h('div', { class: 'ov-split' }, recentBox, debtBox), goalBox, stmtBox, actBox);
 
     /* ---- Live data ---- */
     const stops = [
@@ -91,7 +101,15 @@ window.OVERVIEW = (function () {
       SOC.watchDebts(owner, function (list) { data.debts = list; data.debtError = null; draw(); }, function (e) { data.debts = []; data.debtError = e.message; draw(); }),
       SOC.watchGoals(owner, function (list) { data.goals = list; data.goalError = null; draw(); }, function (e) { data.goals = []; data.goalError = e.message; draw(); })
     ];
-    ctx.onCleanup(function () { stops.forEach(function (s) { s(); }); if (resizer) resizer.disconnect(); });
+    data.activity = null; data.actError = null;
+    function watchAct() {
+      if (actStop) actStop();
+      actStop = SOC.watchActivity(owner, actLimit + 1,
+        function (list) { data.activity = list; data.actError = null; drawActivity(); },
+        function (e) { data.activity = []; data.actError = e.message; drawActivity(); });
+    }
+    watchAct();
+    ctx.onCleanup(function () { stops.forEach(function (s) { s(); }); if (actStop) actStop(); if (resizer) resizer.disconnect(); });
 
     /* ---- Numbers ---- */
     function compute() {
@@ -444,7 +462,20 @@ window.OVERVIEW = (function () {
         book.canEdit ? h('button', { type: 'button', class: 'btn small', onclick: function () { goalForm(null); } }, '+ New goal') : null);
       if (data.goals === null) { goalBox.replaceChildren(head, h('p', { class: 'ov-empty' }, 'Loading…')); return; }
       if (data.goalError) { goalBox.replaceChildren(head, setupNote(data.goalError)); return; }
-      const goals = data.goals.slice().sort(function (a, b) { return (a.kind === 'emergency' ? 0 : 1) - (b.kind === 'emergency' ? 0 : 1); });
+      const allGoals = data.goals.slice().sort(function (a, b) { return (a.kind === 'emergency' ? 0 : 1) - (b.kind === 'emergency' ? 0 : 1); });
+      /* Category chips: only the categories in use, each with its total saved. */
+      const used = Object.keys(SOC.GOAL_KINDS).filter(function (k) { return allGoals.some(function (g) { return g.kind === k; }); });
+      if (goalCat !== 'all' && used.indexOf(goalCat) === -1) goalCat = 'all';
+      const goals = goalCat === 'all' ? allGoals : allGoals.filter(function (g) { return g.kind === goalCat; });
+      const chips = used.length > 1 ? h('div', { class: 'ov-chips', role: 'group', 'aria-label': 'Filter goals by category' },
+        [['all', 'All', allGoals]].concat(used.map(function (k) { return [k, SOC.GOAL_KINDS[k], allGoals.filter(function (g) { return g.kind === k; })]; })).map(function (c) {
+          const total = c[2].reduce(function (t, g) { return t + g.savedCents; }, 0);
+          return h('button', { type: 'button', class: 'ov-chip', 'data-kind': c[0], 'aria-pressed': String(goalCat === c[0]),
+            onclick: function () { goalCat = c[0]; drawGoals(compute()); } },
+            c[0] === 'all' ? null : h('span', { class: 'ov-chip-icon', 'data-kind': c[0] }, kindIcon(c[0])),
+            h('span', null, c[1]), h('span', { class: 'ov-chip-count num' }, String(c[2].length)),
+            h('span', { class: 'ov-chip-amt num' }, show(total)));
+        })) : null;
       const tiles = goals.map(function (g) {
         const pct = Math.min(100, Math.round(g.savedCents / g.targetCents * 100));
         const done = g.savedCents >= g.targetCents;
@@ -474,9 +505,9 @@ window.OVERVIEW = (function () {
           ? h('button', { type: 'button', class: 'ov-goal', 'aria-label': 'Edit goal ' + g.name, onclick: function () { goalForm(g); } }, body)
           : h('div', { class: 'ov-goal' }, body);
       });
-      const hasEmergency = goals.some(function (g) { return g.kind === 'emergency'; });
-      if (!hasEmergency) tiles.unshift(emergencySuggestion(c));
-      goalBox.replaceChildren(head, h('div', { class: 'ov-goals' }, tiles));
+      const hasEmergency = allGoals.some(function (g) { return g.kind === 'emergency'; });
+      if (!hasEmergency && goalCat === 'all') tiles.unshift(emergencySuggestion(c));
+      goalBox.replaceChildren(head, chips || '', h('div', { class: 'ov-goals' }, tiles));
     }
 
     function emergencySuggestion(c) {
@@ -892,6 +923,8 @@ window.OVERVIEW = (function () {
             return problems;
           }
           const id = await SOC.saveDebt(owner, existing && existing.id, next);
+          SOC.logActivity(owner, { action: existing ? 'edit' : 'add', what: 'debt', label: next.person.trim() + (next.note ? ' · ' + next.note.trim() : ''), sub: next.dir,
+            cents: next.cents - next.paidCents, prevCents: existing ? existing.cents - (existing.paidCents || 0) : undefined });
           if (canTag && linked && notify.checked) {
             const first = linked.name.split(' ')[0];
             try { await SOC.notifyDebt(linked.id, id, next, book.currency); ctx.toast((existing ? 'Debt updated. ' : 'Debt added. ') + first + ' was notified.'); }
@@ -900,7 +933,7 @@ window.OVERVIEW = (function () {
           debtDir = next.dir;
           return null;
         },
-        existing ? function () { return SOC.deleteDebt(owner, existing.id); } : null);
+        existing ? async function () { await SOC.deleteDebt(owner, existing.id); SOC.logActivity(owner, { action: 'delete', what: 'debt', label: existing.person, sub: existing.dir, cents: existing.cents - (existing.paidCents || 0) }); } : null);
       const form = preview.closest('form');
       if (form) form.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); form.requestSubmit(); }
@@ -911,7 +944,7 @@ window.OVERVIEW = (function () {
     function goalForm(existing, isNew) {
       const g = existing || { name: '', kind: 'emergency', targetCents: 0, savedCents: 0, due: '' };
       const editing = existing && !isNew;
-      const kind = input('kind', 'Fund type', { tag: 'select', options: Object.keys(SOC.GOAL_KINDS).map(function (k) { return h('option', { value: k }, SOC.GOAL_KINDS[k]); }) });
+      const kind = input('kind', 'Category', { tag: 'select', options: Object.keys(SOC.GOAL_KINDS).map(function (k) { return h('option', { value: k }, SOC.GOAL_KINDS[k]); }) });
       kind.control.value = g.kind;
       const name = input('name', 'Goal name', { maxlength: 40, autocomplete: 'off', placeholder: 'e.g. Japan trip 2027' }, true);
       name.control.value = g.name;
@@ -941,10 +974,295 @@ window.OVERVIEW = (function () {
           const problems = SOC.validateGoal(next);
           if (problems) return problems;
           await SOC.saveGoal(owner, editing ? existing.id : null, next);
+          SOC.logActivity(owner, { action: editing ? 'edit' : 'add', what: 'goal', label: next.name, sub: next.kind, cents: next.savedCents, prevCents: editing ? existing.savedCents : undefined });
           ctx.toast(editing ? 'Goal updated.' : 'Goal added.');
           return null;
         },
-        editing ? function () { return SOC.deleteGoal(owner, existing.id); } : null);
+        editing ? async function () { await SOC.deleteGoal(owner, existing.id); SOC.logActivity(owner, { action: 'delete', what: 'goal', label: existing.name, sub: existing.kind, cents: existing.savedCents }); } : null);
+    }
+
+    /* ---- Small inline icons for the new cards ---- */
+    const MINI = {
+      add: '<path d="M10 4v12M4 10h12"/>',
+      edit: '<path d="M13.5 3.5 16.5 6.5 7 16H4v-3z"/>',
+      delete: '<path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/>',
+      search: '<circle cx="9" cy="9" r="5.5"/><path d="m13 13 4 4"/>',
+      print: '<path d="M6 7V3h8v4M6 14H4V8h12v6h-2"/><rect x="6" y="12" width="8" height="5"/>',
+      mail: '<rect x="2.5" y="4.5" width="15" height="11" rx="1.5"/><path d="m3 5.5 7 5.5 7-5.5"/>',
+      copy: '<rect x="6.5" y="6.5" width="10" height="10" rx="1.5"/><path d="M13.5 6.5V4a1 1 0 0 0-1-1h-8.5a1 1 0 0 0-1 1v8.5a1 1 0 0 0 1 1h2.5"/>',
+      doc: '<path d="M5 2.5h7l3.5 3.5v11.5H5z"/><path d="M12 2.5V6h3.5M7.5 10h5M7.5 13h5"/>',
+      prev: '<path d="m12 4-6 6 6 6"/>', next: '<path d="m8 4 6 6-6 6"/>'
+    };
+    function mini(name) {
+      const span = h('span', { class: 'ov-mini', 'aria-hidden': 'true' });
+      span.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + MINI[name] + '</svg>';
+      return span;
+    }
+
+    /* ---- Activity log ---- */
+    const ACT_FILTERS = [['all', 'All'], ['tx', 'Entries'], ['goal', 'Goals'], ['debt', 'Debts'], ['account', 'Accounts']];
+    const WHAT_WORD = { tx: 'entry', goal: 'savings goal', debt: 'debt', account: 'account' };
+    const whoCache = {};
+    let actQuery = '';
+    let actBuilt = null;
+    function subLabel(e) {
+      const maps = { tx: BT.TYPE_LABELS, goal: SOC.GOAL_KINDS, debt: SOC.DEBT_DIRS, account: SOC.ACCOUNT_TYPES };
+      return (maps[e.what] && maps[e.what][e.sub]) || '';
+    }
+    function whoSlot(uid) {
+      const slot = h('strong', { class: 'ov-act-who' });
+      if (uid === myUid()) { slot.textContent = 'You'; return slot; }
+      slot.textContent = whoCache[uid] || 'Someone';
+      if (!whoCache[uid]) SOC.getProfile(uid).then(function (p) {
+        if (!p) return;
+        whoCache[uid] = String(p.name || p.username || 'Someone').split(' ')[0];
+        slot.textContent = whoCache[uid];
+      }).catch(function () {});
+      return slot;
+    }
+    function dayKey(ms) { const d = new Date(ms); return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); }
+    function dayLabel(ms) {
+      const now = new Date(), y = new Date(); y.setDate(now.getDate() - 1);
+      if (dayKey(ms) === dayKey(now.getTime())) return 'Today';
+      if (dayKey(ms) === dayKey(y.getTime())) return 'Yesterday';
+      return new Date(ms).toLocaleDateString(I18N.locale, { weekday: 'short', month: 'short', day: 'numeric', year: new Date(ms).getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+    }
+    function buildActivity() {
+      const list = h('div', { class: 'ov-act-list', 'aria-live': 'polite' });
+      const seg = h('div', { class: 'ov-seg ov-act-seg', role: 'group', 'aria-label': 'Show activity for' });
+      const search = h('input', { type: 'search', class: 'ov-act-search', placeholder: 'Search activity', 'aria-label': 'Search activity', autocomplete: 'off',
+        oninput: function () { actQuery = search.value.trim().toLowerCase(); drawActivityList(); } });
+      const clear = book.mine ? h('button', { type: 'button', class: 'link small', onclick: async function () {
+        const ok = await ctx.ask({ title: 'Clear activity log?', body: 'This removes every entry in your activity log. Your money data stays.', yes: 'Clear', no: 'Keep' });
+        if (!ok) return;
+        try { await SOC.clearActivity(); ctx.toast('Activity log cleared.'); } catch (e) { ctx.toast(e.message); }
+      } }, 'Clear log') : null;
+      const head = h('div', { class: 'ov-card-head' },
+        h('div', null, h('h2', { id: 'ov-act-h' }, 'Activity'),
+          h('p', { class: 'small muted' }, book.mine ? 'Every change to your dashboard, including ones by your trusted person.' : 'Every change to this dashboard.')),
+        clear);
+      const tools = h('div', { class: 'ov-act-tools' }, seg, h('label', { class: 'ov-act-searchwrap' }, mini('search'), search));
+      actBox.replaceChildren(head, tools, list);
+      actBuilt = { list: list, seg: seg };
+    }
+    function drawActivity() {
+      if (!actBuilt) buildActivity();
+      const all = data.activity || [];
+      actBuilt.seg.replaceChildren.apply(actBuilt.seg, ACT_FILTERS.map(function (f) {
+        return h('button', { type: 'button', 'aria-pressed': String(actWhat === f[0]), onclick: function () { actWhat = f[0]; drawActivity(); } }, f[1]);
+      }));
+      drawActivityList();
+    }
+    function drawActivityList() {
+      const box = actBuilt.list;
+      if (data.activity === null) { box.replaceChildren(h('p', { class: 'ov-empty' }, 'Loading…')); return; }
+      if (data.actError) { box.replaceChildren(setupNote(data.actError)); return; }
+      const more = data.activity.length > actLimit;
+      const items = data.activity.slice(0, actLimit).filter(function (e) {
+        if (actWhat !== 'all' && e.what !== actWhat) return false;
+        if (!actQuery) return true;
+        return (e.label + ' ' + subLabel(e) + ' ' + WHAT_WORD[e.what]).toLowerCase().indexOf(actQuery) !== -1;
+      });
+      if (!items.length) {
+        box.replaceChildren(h('p', { class: 'ov-empty' }, data.activity.length ? 'Nothing matches.' : 'No activity yet. Changes you make from now on will show up here.'));
+        return;
+      }
+      const groups = [];
+      items.forEach(function (e) {
+        const k = dayKey(e.at);
+        if (!groups.length || groups[groups.length - 1].key !== k) groups.push({ key: k, at: e.at, items: [] });
+        groups[groups.length - 1].items.push(e);
+      });
+      const out = groups.map(function (g) {
+        return h('div', { class: 'ov-act-day' }, h('h3', { class: 'ov-act-date small muted' }, dayLabel(g.at)),
+          h('ul', { class: 'ov-list ov-act' }, g.items.map(function (e) {
+            const changed = e.action === 'edit' && Number.isInteger(e.prevCents) && e.prevCents !== e.cents;
+            const sub = subLabel(e);
+            const time = new Date(e.at).toLocaleTimeString(I18N.locale, { hour: 'numeric', minute: '2-digit' });
+            return h('li', { 'data-action': e.action },
+              h('span', { class: 'ov-act-icon', 'data-action': e.action, 'data-what': e.what }, mini(e.action)),
+              h('span', { class: 'ov-list-main' },
+                h('span', { class: 'ov-act-line' }, whoSlot(e.by), ' ' + SOC.ACTIVITY_ACTIONS[e.action] + ' ' + (e.what === 'tx' && sub ? sub.toLowerCase() + ' entry' : WHAT_WORD[e.what]) + ' ',
+                  h('span', { class: 'ov-list-title ov-act-label' }, e.label)),
+                h('span', { class: 'small muted' }, time, sub && e.what !== 'tx' ? ' · ' + sub : '')),
+              e.cents || changed ? h('span', { class: 'ov-act-amt num' + (e.action === 'delete' ? ' struck' : '') },
+                changed ? [h('span', { class: 'muted' }, show(e.prevCents)), ' → '] : null, show(e.cents)) : null);
+          })));
+      });
+      if (more) out.push(h('button', { type: 'button', class: 'btn small ov-act-more', onclick: function () { actLimit += 20; watchAct(); } }, 'Show more'));
+      box.replaceChildren.apply(box, out);
+    }
+
+    /* ---- Monthly statement ---- */
+    let stmtBuilt = null;
+    function monthStats(month) {
+      const txs = book.month(month);
+      const row = monthly(txs, [month])[0];
+      const left = row.income - row.expenses - row.savings;
+      const rate = row.income > 0 ? Math.round(row.savings / row.income * 100) : null;
+      return { month: month, txs: txs, row: row, left: left, rate: rate };
+    }
+    function buildStatement() {
+      const thisMonth = BT.monthOf(BT.today());
+      const select = h('select', { class: 'ov-stmt-select', 'aria-label': 'Statement month', onchange: function () { drawStatement(); } },
+        lastMonths(12, thisMonth).reverse().map(function (m) { return h('option', { value: m }, BT.monthLabel(m) + (m === thisMonth ? ' (so far)' : '')); }));
+      const nums = h('div', { class: 'ov-stmt-nums' });
+      const head = h('div', { class: 'ov-card-head' },
+        h('div', null, h('h2', { id: 'ov-stmt-h' }, 'Monthly statement'),
+          h('p', { class: 'small muted' }, 'A one-page summary of a month. Print it, save it as PDF, or send it to your email.')),
+        h('span', { class: 'ov-stmt-badge' }, mini('doc')));
+      stmtBox.replaceChildren(head,
+        h('div', { class: 'ov-stmt-row' }, select,
+          h('button', { type: 'button', class: 'btn primary small', onclick: function () { statementDialog(select.value); } }, 'View statement')),
+        nums);
+      stmtBuilt = { select: select, nums: nums };
+    }
+    function drawStatement() {
+      if (!stmtBuilt) buildStatement();
+      const st = monthStats(stmtBuilt.select.value);
+      const cell = function (label, cents, cls) { return h('div', { class: 'ov-stmt-num' + (cls ? ' ' + cls : '') }, h('span', { class: 'small muted' }, label), h('strong', { class: 'num' }, show(cents))); };
+      stmtBuilt.nums.replaceChildren(cell('Income', st.row.income, 'in'), cell('Expenses', st.row.expenses, 'out'), cell('Saved', st.row.savings, 'save'),
+        cell('Left over', st.left, st.left < 0 ? 'neg' : ''));
+    }
+
+    function statementText(st) {
+      const lines = [];
+      lines.push('PassbookHub monthly statement');
+      lines.push(book.owner.name + ' · ' + BT.monthLabel(st.month));
+      lines.push('');
+      lines.push('Income: ' + money(st.row.income));
+      lines.push('Needs: ' + money(st.row.needs));
+      lines.push('Wants: ' + money(st.row.wants));
+      lines.push('Savings: ' + money(st.row.savings) + (st.rate !== null ? ' (' + st.rate + '% of income)' : ''));
+      lines.push('Total expenses: ' + money(st.row.expenses));
+      lines.push('Left over: ' + money(st.left));
+      const top = st.txs.filter(function (t) { return t.type === 'needs' || t.type === 'wants'; }).sort(function (a, b) { return b.cents - a.cents; }).slice(0, 5);
+      if (top.length) {
+        lines.push(''); lines.push('Top expenses:');
+        top.forEach(function (t) { lines.push('- ' + t.desc + ' (' + BT.TYPE_LABELS[t.type] + ', ' + BT.shortDate(t.date) + '): ' + money(t.cents)); });
+      }
+      const goals = data.goals || [];
+      if (goals.length) {
+        lines.push(''); lines.push('Savings goals:');
+        goals.forEach(function (g) { lines.push('- ' + g.name + ' [' + SOC.GOAL_KINDS[g.kind] + ']: ' + money(g.savedCents) + ' of ' + money(g.targetCents) + ' (' + Math.min(100, Math.round(g.savedCents / g.targetCents * 100)) + '%)'); });
+      }
+      const open = (data.debts || []).filter(function (d) { return d.cents - (d.paidCents || 0) > 0; });
+      if (open.length) {
+        lines.push(''); lines.push('Open debts:');
+        open.forEach(function (d) { lines.push('- ' + (d.dir === 'owe' ? 'I owe ' : 'Owes me: ') + d.person + ': ' + money(d.cents - (d.paidCents || 0))); });
+      }
+      lines.push(''); lines.push('Generated ' + new Date().toLocaleString(I18N.locale) + ' · ' + location.origin + location.pathname);
+      return lines.join('\n');
+    }
+
+    function statementDialog(startMonth) {
+      const previous = document.activeElement;
+      let month = startMonth;
+      const thisMonth = BT.monthOf(BT.today());
+      const paper = h('div', { class: 'stmt-paper' });
+      const title = h('h2', { id: 'stmt-title', class: 'stmt-period' });
+      const prevBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Previous month', title: 'Previous month', onclick: function () { month = BT.addMonths(month, -1); fill(); } }, mini('prev'));
+      const nextBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Next month', title: 'Next month', onclick: function () { month = BT.addMonths(month, 1); fill(); } }, mini('next'));
+      const email = window.FB.auth.currentUser && window.FB.auth.currentUser.email;
+      const actions = h('div', { class: 'stmt-actions' },
+        h('button', { type: 'button', class: 'btn', onclick: function () { printIt(); } }, mini('print'), ' Print / Save PDF'),
+        email ? h('button', { type: 'button', class: 'btn', onclick: function () { mailIt(); } }, mini('mail'), ' Email to me') : null,
+        h('button', { type: 'button', class: 'btn', onclick: function () { copyIt(); } }, mini('copy'), ' Copy summary'),
+        h('span', { class: 'grow' }),
+        h('button', { type: 'button', class: 'btn primary', onclick: function () { close(); } }, 'Done'));
+      const card = h('div', { class: 'ask-card stmt-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'stmt-title' },
+        h('div', { class: 'stmt-nav' }, prevBtn, title, nextBtn,
+          h('span', { class: 'grow' }),
+          h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', title: 'Close', onclick: function () { close(); } }, icon('close'))),
+        paper, actions);
+      const overlay = h('div', { class: 'chat-overlay ask stmt-overlay' }, card);
+
+      function bar(label, cents, income, goalPct, good) {
+        const pct = income > 0 ? Math.round(cents / income * 100) : 0;
+        const ok = income > 0 ? good(pct) : true;
+        return h('div', { class: 'stmt-bar' },
+          h('div', { class: 'stmt-bar-top' }, h('span', null, label), h('span', { class: 'num' }, pct + '% ', h('span', { class: 'muted' }, '/ ' + goalPct + '%'))),
+          h('span', { class: 'meter', 'data-state': ok ? 'good' : 'warning' }, h('i', { style: 'width:' + Math.min(100, pct) + '%' }), h('b', { class: 'stmt-mark', style: 'left:' + goalPct + '%' })));
+      }
+      function fill() {
+        const st = monthStats(month);
+        title.textContent = BT.monthLabel(month) + (month === thisMonth ? ' (so far)' : '');
+        nextBtn.disabled = month >= thisMonth;
+        const r = st.row;
+        const expenses = st.txs.filter(function (t) { return t.type === 'needs' || t.type === 'wants'; });
+        const top = expenses.slice().sort(function (a, b) { return b.cents - a.cents; }).slice(0, 5);
+        const entries = st.txs.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.createdAt - b.createdAt; });
+        const goals = data.goals || [];
+        const open = (data.debts || []).filter(function (d) { return d.cents - (d.paidCents || 0) > 0; });
+        const sumRow = function (label, cents, cls) { return h('div', { class: 'stmt-sum ' + (cls || '') }, h('span', null, label), h('strong', { class: 'num' }, money(cents))); };
+        paper.replaceChildren(
+          h('header', { class: 'stmt-head' },
+            h('div', null, h('p', { class: 'stmt-brand' }, 'PassbookHub'), h('h3', null, 'Monthly statement')),
+            h('div', { class: 'stmt-meta small' }, h('p', null, h('strong', null, book.owner.name)), h('p', { class: 'muted' }, BT.monthLabel(month)),
+              h('p', { class: 'muted' }, 'Generated ' + new Date().toLocaleDateString(I18N.locale, { month: 'short', day: 'numeric', year: 'numeric' })))),
+          st.txs.length ? null : h('p', { class: 'ov-empty' }, 'No entries for this month.'),
+          h('section', { class: 'stmt-sums' },
+            sumRow('Income', r.income, 'in'), sumRow('Needs', r.needs), sumRow('Wants', r.wants), sumRow('Savings', r.savings, 'save'),
+            sumRow('Total expenses', r.expenses, 'out'), sumRow('Left over', st.left, st.left < 0 ? 'neg total' : 'total')),
+          r.income > 0 ? h('section', { class: 'stmt-block' }, h('h4', null, '50/30/20 check'),
+            bar('Needs', r.needs, r.income, 50, function (p) { return p <= 50; }),
+            bar('Wants', r.wants, r.income, 30, function (p) { return p <= 30; }),
+            bar('Savings', r.savings, r.income, 20, function (p) { return p >= 20; })) : null,
+          top.length ? h('section', { class: 'stmt-block' }, h('h4', null, 'Top expenses'),
+            h('ol', { class: 'stmt-top' }, top.map(function (t) {
+              return h('li', null, h('span', { class: 'stmt-desc' }, t.desc), h('span', { class: 'small muted' }, BT.TYPE_LABELS[t.type] + ' · ' + BT.shortDate(t.date)), h('span', { class: 'num' }, money(t.cents)));
+            }))) : null,
+          entries.length ? h('details', { class: 'stmt-block stmt-entries', open: entries.length <= 12 },
+            h('summary', null, h('h4', null, 'All entries (' + entries.length + ')')),
+            h('table', null, h('thead', null, h('tr', null, h('th', null, 'Date'), h('th', null, 'Description'), h('th', null, 'Category'), h('th', { class: 'r' }, 'Amount'))),
+              h('tbody', null, entries.map(function (t) {
+                return h('tr', { 'data-type': t.type }, h('td', null, BT.shortDate(t.date)), h('td', { class: 'tx-desc' }, t.desc), h('td', null, BT.TYPE_LABELS[t.type]),
+                  h('td', { class: 'r num' }, (t.type === 'income' ? '+' : '−') + money(t.cents)));
+              })))) : null,
+          goals.length ? h('section', { class: 'stmt-block' }, h('h4', null, 'Savings goals (today)'),
+            h('ul', { class: 'stmt-goals' }, goals.map(function (g) {
+              const pct = Math.min(100, Math.round(g.savedCents / g.targetCents * 100));
+              return h('li', null, h('span', { class: 'ov-goal-icon', 'data-kind': g.kind }, kindIcon(g.kind)),
+                h('span', { class: 'stmt-goal-main' }, h('span', { class: 'stmt-desc' }, g.name), h('span', { class: 'small muted' }, SOC.GOAL_KINDS[g.kind]),
+                  h('span', { class: 'meter thin', 'data-state': pct >= 100 ? 'good' : 'normal' }, h('i', { style: 'width:' + pct + '%' }))),
+                h('span', { class: 'num small' }, money(g.savedCents) + ' / ' + money(g.targetCents)));
+            }))) : null,
+          open.length ? h('section', { class: 'stmt-block' }, h('h4', null, 'Open debts (today)'),
+            h('ul', { class: 'stmt-top' }, open.map(function (d) {
+              return h('li', null, h('span', { class: 'stmt-desc' }, d.person), h('span', { class: 'small muted' }, d.dir === 'owe' ? 'I owe' : 'Owed to me'), h('span', { class: 'num' }, money(d.cents - (d.paidCents || 0))));
+            }))) : null,
+          h('p', { class: 'stmt-foot small muted' }, 'Amounts in ' + book.currency + '. Goals and debts show their balances today.'));
+      }
+      function printIt() {
+        paper.querySelectorAll('details').forEach(function (d) { d.open = true; });
+        document.body.classList.add('printing-stmt');
+        const done = function () { document.body.classList.remove('printing-stmt'); window.removeEventListener('afterprint', done); };
+        window.addEventListener('afterprint', done);
+        window.print();
+        setTimeout(done, 1000);
+      }
+      function mailIt() {
+        const st = monthStats(month);
+        let body = statementText(st);
+        if (body.length > 1800) body = body.slice(0, 1800) + '\n…';
+        const subject = 'PassbookHub statement · ' + BT.monthLabel(month);
+        location.href = 'mailto:' + encodeURIComponent(email) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+      }
+      async function copyIt() {
+        try { await navigator.clipboard.writeText(statementText(monthStats(month))); ctx.toast('Statement copied.'); }
+        catch (e) { ctx.toast('Couldn’t copy. Try Print instead.'); }
+      }
+      function onKey(event) {
+        if (event.key === 'Escape') close();
+        if (event.key === 'ArrowLeft' && event.target.tagName !== 'INPUT') prevBtn.click();
+        if (event.key === 'ArrowRight' && event.target.tagName !== 'INPUT' && !nextBtn.disabled) nextBtn.click();
+      }
+      function close() { document.removeEventListener('keydown', onKey); overlay.remove(); if (previous && previous.isConnected) previous.focus(); }
+      overlay.addEventListener('click', function (event) { if (event.target === overlay) close(); });
+      document.addEventListener('keydown', onKey);
+      fill();
+      document.body.appendChild(overlay);
+      card.querySelector('.stmt-actions .btn').focus();
     }
 
     /* ---- Draw everything ---- */
@@ -957,6 +1275,8 @@ window.OVERVIEW = (function () {
       drawRecent();
       drawDebts(c);
       drawGoals(c);
+      drawStatement();
+      drawActivity();
     }
     draw();
     return { el: el, refresh: draw };

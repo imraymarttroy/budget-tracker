@@ -35,13 +35,13 @@ try {
     }
   }
   window.FB = { app: app, base: base, appCheck: appCheck, auth: authMod.getAuth(app), db: fsMod.getFirestore(app), A: authMod, F: fsMod };
-  await import('./i18n.js?v=5');
+  await import('./i18n.js?v=6');
   await import('./banks.js?v=2');
   await import('./quotes.js?v=2');
   await import('./core.js?v=15');
-  await import('./social.js?v=21');
-  await import('./overview.js?v=3');
-  await import('./app.js?v=42');
+  await import('./social.js?v=22');
+  await import('./overview.js?v=4');
+  await import('./app.js?v=43');
 } catch (error) {
   console.error(error);
   fail('PassbookHub could not start. Check your internet connection and reload the page.');

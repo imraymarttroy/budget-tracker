@@ -878,7 +878,8 @@ window.SOC = (function () {
 
   const DEBT_DIRS = { owe: 'I owe', lent: 'Owed to me' };
   const GOAL_KINDS = {
-    emergency: 'Emergency fund', travel: 'Travel', education: 'Education', house: 'House',
+    emergency: 'Emergency fund', family: 'Family', personal: 'Personal', education: 'Education', health: 'Health',
+    travel: 'Travel', house: 'House',
     vehicle: 'Vehicle', gadget: 'Gadget', wedding: 'Wedding', business: 'Business',
     retirement: 'Retirement', other: 'Other'
   };
@@ -912,7 +913,7 @@ window.SOC = (function () {
     const errors = {};
     if (!g.name || !g.name.trim()) errors.name = 'Give this goal a name.';
     else if (g.name.trim().length > 40) errors.name = 'Use 40 characters or fewer.';
-    if (!GOAL_KINDS[g.kind]) errors.kind = 'Choose a fund type.';
+    if (!GOAL_KINDS[g.kind]) errors.kind = 'Choose a category.';
     if (!okCents(g.targetCents, 1)) errors.targetCents = 'Enter a target above zero.';
     if (!okCents(g.savedCents, 0)) errors.savedCents = 'Enter zero or more.';
     if (!isDate(g.due || '')) errors.due = 'Enter a valid date.';
@@ -954,6 +955,45 @@ window.SOC = (function () {
   }
   async function deleteGoal(owner, id) { await run(function () { return F().deleteDoc(F().doc(goalsCol(owner || me()), id)); }); }
 
+  /* ---------- Activity log ----------
+     users/{owner}/activity/{id} = { by, action, what, label, sub, cents, prevCents, at }
+       action 'add' | 'edit' | 'delete'; what 'tx' | 'goal' | 'debt' | 'account'.
+     Written alongside each change so the owner and their trusted person can see who did what.
+     Logging never blocks the change itself: if it fails, the save still counts. */
+
+  const ACTIVITY_WHAT = { tx: 'Entry', goal: 'Savings goal', debt: 'Debt', account: 'Account' };
+  const ACTIVITY_ACTIONS = { add: 'added', edit: 'updated', delete: 'deleted' };
+  const activityCol = function (owner) { return F().collection(db(), 'users', owner, 'activity'); };
+  function clampCents(v) { return Number.isInteger(v) && v >= 0 && v <= MAX_CENTS ? v : 0; }
+
+  function logActivity(owner, entry) {
+    if (!me() || !ACTIVITY_WHAT[entry.what] || !ACTIVITY_ACTIONS[entry.action]) return Promise.resolve();
+    const rec = {
+      by: me(), action: entry.action, what: entry.what,
+      label: String(entry.label || '').trim().slice(0, 80),
+      sub: String(entry.sub || '').slice(0, 40),
+      cents: clampCents(entry.cents), at: Date.now()
+    };
+    if (Number.isInteger(entry.prevCents)) rec.prevCents = clampCents(entry.prevCents);
+    return F().setDoc(F().doc(activityCol(owner || me())), rec).catch(function (error) { console.warn('Activity log not saved', error); });
+  }
+  /** Newest first. Calls back with up to `limit` entries. */
+  function watchActivity(owner, limit, onChange, onError) {
+    const q = F().query(activityCol(owner || me()), F().orderBy('at', 'desc'), F().limit(limit));
+    return F().onSnapshot(q, function (snap) {
+      onChange(snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }));
+    }, function (error) { if (onError) onError(friendly(error)); });
+  }
+  /** Only the owner can clear their log. */
+  async function clearActivity() {
+    const snap = await run(function () { return F().getDocs(activityCol(me())); });
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const batch = F().writeBatch(db());
+      snap.docs.slice(i, i + 400).forEach(function (d) { batch.delete(d.ref); });
+      await run(function () { return batch.commit(); });
+    }
+  }
+
   /* ---------- Account deletion ---------- */
 
   /** Removes everything social that belongs to the signed-in person. Call before deleting the account. */
@@ -977,7 +1017,7 @@ window.SOC = (function () {
     refs.push(noteDoc(uid));
     const myAccounts = await run(function () { return F().getDocs(accountsCol(uid)); });
     myAccounts.docs.forEach(function (d) { refs.push(d.ref); });
-    for (const col of [debtsCol(uid), goalsCol(uid)]) {
+    for (const col of [debtsCol(uid), goalsCol(uid), activityCol(uid)]) {
       const snap = await run(function () { return F().getDocs(col); }).catch(function () { return { docs: [] }; });
       snap.docs.forEach(function (d) { refs.push(d.ref); });
     }
@@ -1031,6 +1071,7 @@ window.SOC = (function () {
     addAccount: addAccount, updateAccount: updateAccount, deleteAccount: deleteAccount,
     DEBT_DIRS: DEBT_DIRS, GOAL_KINDS: GOAL_KINDS, validateDebt: validateDebt, validateGoal: validateGoal,
     watchDebts: watchDebts, saveDebt: saveDebt, notifyDebt: notifyDebt, deleteDebt: deleteDebt, watchGoals: watchGoals, saveGoal: saveGoal, deleteGoal: deleteGoal,
+    ACTIVITY_WHAT: ACTIVITY_WHAT, ACTIVITY_ACTIONS: ACTIVITY_ACTIONS, logActivity: logActivity, watchActivity: watchActivity, clearActivity: clearActivity,
     watchSharedTx: watchSharedTx, addSharedTx: addSharedTx, updateSharedTx: updateSharedTx, deleteSharedTx: deleteSharedTx, restoreSharedTx: restoreSharedTx
   };
 })();

@@ -98,11 +98,31 @@ service cloud.firestore {
         allow create, update: if (signedInAs(uid) || trustedEditorOf(uid))
           && request.resource.data.keys().hasOnly(['name', 'kind', 'targetCents', 'savedCents', 'due', 'createdAt', 'updatedAt'])
           && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
-          && request.resource.data.kind in ['emergency', 'travel', 'education', 'house', 'vehicle', 'gadget', 'wedding', 'business', 'retirement', 'other']
+          && request.resource.data.kind in ['emergency', 'family', 'personal', 'education', 'health', 'travel', 'house', 'vehicle', 'gadget', 'wedding', 'business', 'retirement', 'other']
           && request.resource.data.targetCents is int && request.resource.data.targetCents > 0 && request.resource.data.targetCents <= 100000000000000
           && request.resource.data.savedCents is int && request.resource.data.savedCents >= 0 && request.resource.data.savedCents <= 100000000000000
           && request.resource.data.due is string && request.resource.data.due.matches('^([0-9]{4}-[0-9]{2}-[0-9]{2})?$')
           && request.resource.data.createdAt is int && request.resource.data.updatedAt is int;
+      }
+
+      // users/{uid}/activity/{id}: history of changes (who added, edited or deleted what).
+      // Anyone who can edit the dashboard adds entries as themselves; entries are never changed.
+      // Only the owner can clear them.
+      match /activity/{entryId} {
+        allow read: if signedInAs(uid) || trustedBy(uid);
+        allow delete: if signedInAs(uid);
+        allow update: if false;
+        allow create: if (signedInAs(uid) || trustedEditorOf(uid))
+          && request.resource.data.keys().hasOnly(['by', 'action', 'what', 'label', 'sub', 'cents', 'prevCents', 'at'])
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.action in ['add', 'edit', 'delete']
+          && request.resource.data.what in ['tx', 'goal', 'debt', 'account']
+          && request.resource.data.label is string && request.resource.data.label.size() <= 80
+          && request.resource.data.sub is string && request.resource.data.sub.size() <= 40
+          && request.resource.data.cents is int && request.resource.data.cents >= 0 && request.resource.data.cents <= 100000000000000
+          && (!('prevCents' in request.resource.data) || (request.resource.data.prevCents is int
+              && request.resource.data.prevCents >= 0 && request.resource.data.prevCents <= 100000000000000))
+          && request.resource.data.at is int;
       }
     }
 
