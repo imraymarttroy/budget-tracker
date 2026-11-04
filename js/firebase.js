@@ -40,7 +40,7 @@ try {
   await import('./quotes.js?v=2');
   await import('./core.js?v=15');
   await import('./social.js?v=22');
-  await import('./overview.js?v=4');
+  await import('./overview.js?v=5');
   await import('./app.js?v=43');
 } catch (error) {
   console.error(error);

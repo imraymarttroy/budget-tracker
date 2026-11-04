@@ -1195,7 +1195,7 @@ window.OVERVIEW = (function () {
         const goals = data.goals || [];
         const open = (data.debts || []).filter(function (d) { return d.cents - (d.paidCents || 0) > 0; });
         const sumRow = function (label, cents, cls) { return h('div', { class: 'stmt-sum ' + (cls || '') }, h('span', null, label), h('strong', { class: 'num' }, money(cents))); };
-        paper.replaceChildren(
+        paper.replaceChildren.apply(paper, [
           h('header', { class: 'stmt-head' },
             h('div', null, h('p', { class: 'stmt-brand' }, 'PassbookHub'), h('h3', null, 'Monthly statement')),
             h('div', { class: 'stmt-meta small' }, h('p', null, h('strong', null, book.owner.name)), h('p', { class: 'muted' }, BT.monthLabel(month)),
@@ -1231,7 +1231,7 @@ window.OVERVIEW = (function () {
             h('ul', { class: 'stmt-top' }, open.map(function (d) {
               return h('li', null, h('span', { class: 'stmt-desc' }, d.person), h('span', { class: 'small muted' }, d.dir === 'owe' ? 'I owe' : 'Owed to me'), h('span', { class: 'num' }, money(d.cents - (d.paidCents || 0))));
             }))) : null,
-          h('p', { class: 'stmt-foot small muted' }, 'Amounts in ' + book.currency + '. Goals and debts show their balances today.'));
+          h('p', { class: 'stmt-foot small muted' }, 'Amounts in ' + book.currency + '. Goals and debts show their balances today.')].filter(Boolean));
       }
       function printIt() {
         paper.querySelectorAll('details').forEach(function (d) { d.open = true; });
