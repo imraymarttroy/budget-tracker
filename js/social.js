@@ -871,6 +871,72 @@ window.SOC = (function () {
     await run(function () { return F().deleteDoc(F().doc(accountsCol(owner || me()), id)); });
   }
 
+  /* ---------- Debts (utang) and savings goals ----------
+     users/{owner}/debts/{id} = { dir, person, note, cents, paidCents, due, createdAt, updatedAt }
+       dir 'owe' = you owe them (utang ko), 'lent' = they owe you (pinautang ko).
+     users/{owner}/goals/{id} = { name, kind, targetCents, savedCents, due, createdAt, updatedAt } */
+
+  const DEBT_DIRS = { owe: 'I owe', lent: 'Owed to me' };
+  const GOAL_KINDS = {
+    emergency: 'Emergency fund', travel: 'Travel', education: 'Education', house: 'House',
+    vehicle: 'Vehicle', gadget: 'Gadget', wedding: 'Wedding', business: 'Business',
+    retirement: 'Retirement', other: 'Other'
+  };
+  const MAX_CENTS = 100000000000000;
+  const debtsCol = function (owner) { return F().collection(db(), 'users', owner, 'debts'); };
+  const goalsCol = function (owner) { return F().collection(db(), 'users', owner, 'goals'); };
+  const isDate = function (v) { return v === '' || /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v); };
+  const okCents = function (v, min) { return Number.isInteger(v) && v >= min && v <= MAX_CENTS; };
+
+  function validateDebt(d) {
+    const errors = {};
+    if (!DEBT_DIRS[d.dir]) errors.dir = 'Choose who owes whom.';
+    if (!d.person || !d.person.trim()) errors.person = 'Enter a name.';
+    else if (d.person.trim().length > 40) errors.person = 'Use 40 characters or fewer.';
+    if (d.note && d.note.trim().length > 80) errors.note = 'Use 80 characters or fewer.';
+    if (!okCents(d.cents, 1)) errors.cents = 'Enter an amount above zero.';
+    if (!okCents(d.paidCents, 0)) errors.paidCents = 'Enter zero or more.';
+    else if (!errors.cents && d.paidCents > d.cents) errors.paidCents = 'Paid can’t be more than the total.';
+    if (!isDate(d.due || '')) errors.due = 'Enter a valid date.';
+    return Object.keys(errors).length ? errors : null;
+  }
+  function debtFields(d) {
+    return { dir: d.dir, person: d.person.trim(), note: (d.note || '').trim(), cents: d.cents, paidCents: d.paidCents, due: d.due || '', updatedAt: Date.now() };
+  }
+  function validateGoal(g) {
+    const errors = {};
+    if (!g.name || !g.name.trim()) errors.name = 'Give this goal a name.';
+    else if (g.name.trim().length > 40) errors.name = 'Use 40 characters or fewer.';
+    if (!GOAL_KINDS[g.kind]) errors.kind = 'Choose a fund type.';
+    if (!okCents(g.targetCents, 1)) errors.targetCents = 'Enter a target above zero.';
+    if (!okCents(g.savedCents, 0)) errors.savedCents = 'Enter zero or more.';
+    if (!isDate(g.due || '')) errors.due = 'Enter a valid date.';
+    return Object.keys(errors).length ? errors : null;
+  }
+  function goalFields(g) {
+    return { name: g.name.trim(), kind: g.kind, targetCents: g.targetCents, savedCents: g.savedCents, due: g.due || '', updatedAt: Date.now() };
+  }
+  function watchList(col, owner, onChange, onError) {
+    return F().onSnapshot(col(owner || me()), function (snap) {
+      onChange(snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); })
+        .sort(function (a, b) { return a.createdAt - b.createdAt; }));
+    }, function (error) { if (onError) onError(friendly(error)); });
+  }
+  function watchDebts(owner, onChange, onError) { return watchList(debtsCol, owner, onChange, onError); }
+  function watchGoals(owner, onChange, onError) { return watchList(goalsCol, owner, onChange, onError); }
+  async function saveDebt(owner, id, d) {
+    const col = debtsCol(owner || me());
+    if (id) return run(function () { return F().updateDoc(F().doc(col, id), debtFields(d)); });
+    return run(function () { return F().setDoc(F().doc(col), Object.assign({ createdAt: Date.now() }, debtFields(d))); });
+  }
+  async function deleteDebt(owner, id) { await run(function () { return F().deleteDoc(F().doc(debtsCol(owner || me()), id)); }); }
+  async function saveGoal(owner, id, g) {
+    const col = goalsCol(owner || me());
+    if (id) return run(function () { return F().updateDoc(F().doc(col, id), goalFields(g)); });
+    return run(function () { return F().setDoc(F().doc(col), Object.assign({ createdAt: Date.now() }, goalFields(g))); });
+  }
+  async function deleteGoal(owner, id) { await run(function () { return F().deleteDoc(F().doc(goalsCol(owner || me()), id)); }); }
+
   /* ---------- Account deletion ---------- */
 
   /** Removes everything social that belongs to the signed-in person. Call before deleting the account. */
@@ -894,6 +960,10 @@ window.SOC = (function () {
     refs.push(noteDoc(uid));
     const myAccounts = await run(function () { return F().getDocs(accountsCol(uid)); });
     myAccounts.docs.forEach(function (d) { refs.push(d.ref); });
+    for (const col of [debtsCol(uid), goalsCol(uid)]) {
+      const snap = await run(function () { return F().getDocs(col); }).catch(function () { return { docs: [] }; });
+      snap.docs.forEach(function (d) { refs.push(d.ref); });
+    }
     const sharedWithMe = await run(function () { return F().getDocs(F().query(F().collection(db(), 'trust'), F().where('member', '==', uid))); });
     sharedWithMe.docs.forEach(function (d) { refs.push(d.ref); });
     /* Your own messages and the conversations you are in. */
@@ -942,6 +1012,8 @@ window.SOC = (function () {
     acceptTrust: acceptTrust, leaveTrust: leaveTrust,
     ACCOUNT_TYPES: ACCOUNT_TYPES, validateAccount: validateAccount, watchAccounts: watchAccounts,
     addAccount: addAccount, updateAccount: updateAccount, deleteAccount: deleteAccount,
+    DEBT_DIRS: DEBT_DIRS, GOAL_KINDS: GOAL_KINDS, validateDebt: validateDebt, validateGoal: validateGoal,
+    watchDebts: watchDebts, saveDebt: saveDebt, deleteDebt: deleteDebt, watchGoals: watchGoals, saveGoal: saveGoal, deleteGoal: deleteGoal,
     watchSharedTx: watchSharedTx, addSharedTx: addSharedTx, updateSharedTx: updateSharedTx, deleteSharedTx: deleteSharedTx, restoreSharedTx: restoreSharedTx
   };
 })();

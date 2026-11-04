@@ -4323,6 +4323,7 @@
       thisMonth.hidden = state.month === BT.monthOf(BT.today());
       drawSummary(book.month(state.month));
       drawList();
+      if (overview) overview.refresh();
     }
 
     function setMonth(month) {
@@ -4344,17 +4345,24 @@
       setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     }
 
+    let overview = null;
     state.refreshDashboard = drawAll;
     form.elements.date.value = defaultDate();
     drawHint();
     drawAll();
 
-    /* ---- Tabs: Savings tracker, Wallet, Savings, Credit, Loan, 50/30/20 ---- */
+    /* ---- Tabs: Overview, Savings tracker, Wallet, Savings, Credit, Loan, 50/30/20 ---- */
     const tracker = savingsTracker(book);
+    overview = OVERVIEW.render({
+      h: h, icon: icon, ask: ask, toast: toast, book: book,
+      onCleanup: function (fn) { const prev = state.cleanup; state.cleanup = function () { fn(); if (prev) prev(); }; },
+      openTab: function (name) { pickTab(name); const t = document.getElementById('tab-' + name); if (t) { t.focus(); t.scrollIntoView({ block: 'nearest' }); } }
+    });
+    const overviewPanel = h('div', { id: 'panel-overview', role: 'tabpanel', 'aria-labelledby': 'tab-overview' }, overview.el);
     const budgetPanel = h('div', { class: 'budget-panel' });
     const tabButtons = DASH_TABS.map(function (t) {
       return h('button', {
-        type: 'button', role: 'tab', class: 'dash-tab', id: 'tab-' + t[0], 'aria-controls': t[0] === 'budget' ? 'panel-budget' : 'panel-tracker',
+        type: 'button', role: 'tab', class: 'dash-tab', id: 'tab-' + t[0], 'aria-controls': t[0] === 'budget' || t[0] === 'overview' ? 'panel-' + t[0] : 'panel-tracker',
         onclick: function () { pickTab(t[0]); },
         onkeydown: function (event) {
           const i = DASH_TABS.findIndex(function (x) { return x[0] === t[0]; });
@@ -4373,10 +4381,11 @@
         b.setAttribute('aria-selected', on ? 'true' : 'false');
         b.tabIndex = on ? 0 : -1;
       });
-      trackerPanel.hidden = name === 'budget';
+      trackerPanel.hidden = name === 'budget' || name === 'overview';
       budgetPanel.hidden = name !== 'budget';
+      overviewPanel.hidden = name !== 'overview';
       trackerPanel.setAttribute('aria-labelledby', 'tab-' + name);
-      if (name !== 'budget') tracker.setTab(name);
+      if (name !== 'budget' && name !== 'overview') tracker.setTab(name);
     }
     tracker.onTab = function (name) { if (state.dashTab !== name) pickTab(name); };
 
@@ -4399,7 +4408,8 @@
             h('button', { type: 'button', class: 'link', onclick: exportCsv }, 'Export CSV'),
             filter)),
         listBox));
-    pickTab(DASH_TABS.some(function (t) { return t[0] === state.dashTab; }) ? state.dashTab : 'tracker');
+    /* The dashboard always opens on the Overview. */
+    pickTab('overview');
 
     return h('div', { class: 'wide' },
       h('section', { class: 'identity' },
@@ -4410,6 +4420,7 @@
         book.mine ? privatePin() : sharedBadge(book)),
       book.mine ? trustCard() : null,
       h('div', { class: 'dash-tabs', role: 'tablist', 'aria-label': 'Dashboard sections' }, tabButtons),
+      overviewPanel,
       trackerPanel,
       budgetPanel,
       h('p', { class: 'footnote' }, book.mine
@@ -4421,7 +4432,7 @@
 
   /* ---------- Savings tracker (bank accounts, wallets, credit cards, loans) ---------- */
 
-  const DASH_TABS = [['tracker', 'Savings tracker'], ['wallet', 'Wallet'], ['savings', 'Savings'], ['credit', 'Credit'], ['loan', 'Loan'], ['budget', '50/30/20']];
+  const DASH_TABS = [['overview', 'Overview'], ['tracker', 'Savings tracker'], ['wallet', 'Wallet'], ['savings', 'Savings'], ['credit', 'Credit'], ['loan', 'Loan'], ['budget', '50/30/20']];
 
   function amountsHidden() { try { return localStorage.getItem('pbh.hideAmounts') === '1'; } catch (e) { return false; } }
   function setAmountsHidden(on) { try { localStorage.setItem('pbh.hideAmounts', on ? '1' : '0'); } catch (e) { /* storage off */ } }
