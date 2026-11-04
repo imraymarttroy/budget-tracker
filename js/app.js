@@ -550,19 +550,19 @@
     state.notice = null;
     const redirectError = BT.takeRedirectError();
     const signin = view === 'signin';
+    const mainBox = h('div', { class: 'auth-main' + (signin ? '' : ' su-main') });
+    mainBox.append.apply(mainBox, [
+          h('span', { class: 'auth-wordmark auth-wordmark-mobile' }, logoMark('auth-wordmark-mark'), 'PassbookHub'),
+          signin ? h('h1', { class: 'auth-title' }, 'Welcome back') : null,
+          notice ? h('p', { class: 'notice', role: 'status' }, notice) : null,
+          signin ? signInForm() : signUpForm(mainBox),
+          signin ? h('p', { class: 'auth-switch' }, ['Don\u2019t have an account? ', h('a', { href: '#signup' }, 'Sign up')]) : null,
+          h('p', { class: 'or-divider' }, h('span', null, 'Or')),
+          socialButtons(view, redirectError)].filter(Boolean));
     return h('div', { class: 'auth-page' },
       authHero(signin),
       h('div', { class: 'auth-panel' },
-        h('div', { class: 'auth-main' },
-          h('span', { class: 'auth-wordmark auth-wordmark-mobile' }, logoMark('auth-wordmark-mark'), 'PassbookHub'),
-          h('h1', { class: 'auth-title' }, signin ? 'Welcome back' : 'Join PassbookHub'),
-          notice ? h('p', { class: 'notice', role: 'status' }, notice) : null,
-          signin ? signInForm() : signUpForm(),
-          h('p', { class: 'auth-switch' }, signin
-            ? ['Don\u2019t have an account? ', h('a', { href: '#signup' }, 'Sign up')]
-            : ['Already have an account? ', h('a', { href: '#signin' }, 'Log in')]),
-          h('p', { class: 'or-divider' }, h('span', null, 'Or')),
-          socialButtons(view, redirectError)),
+        mainBox,
         h('footer', { class: 'auth-footer' },
           h('span', null, '\u00a9 ' + new Date().getFullYear() + ' PassbookHub'),
           h('span', null, 'Half for needs, some for wants, the rest for later.'),
@@ -723,35 +723,172 @@
     return form;
   }
 
-  function signUpForm() {
+  /* Sign up, one question per screen: name, birthday, email, username, password.
+     Every input stays in one form, so a server error on any field can jump back to its step. */
+  function signUpForm(host) {
+    const STEPS = [
+      { key: 'name', title: 'What’s your name?', sub: 'Enter the name you use in real life. People in your circle will see it.' },
+      { key: 'birthday', title: 'What’s your birthday?', sub: 'Choose your date of birth. You must be ' + BT.MIN_AGE + ' or older. It stays private unless you share it with your circle.' },
+      { key: 'email', title: 'What’s your email?', sub: 'Enter the email where we can reach you. No one else will see it.' },
+      { key: 'username', title: 'Create a username', sub: 'This is how people find you on PassbookHub. You can change it later.' },
+      { key: 'password', title: 'Create a password', sub: 'Use at least 8 characters. A mix of letters, numbers and symbols is stronger.' }
+    ];
+    let step = 0;
+    let usernameCheck = 0;
+
+    const title = h('h1', { class: 'su-title', id: 'su-title', tabindex: '-1' });
+    const sub = h('p', { class: 'su-sub' });
+    const count = h('span', { class: 'su-count' });
+    const bar = h('span', { class: 'su-bar', 'aria-hidden': 'true' }, h('i'));
+    const back = h('button', { type: 'button', class: 'su-back', 'aria-label': 'Back', title: 'Back', onclick: function () { go(step - 1); } }, icon('prev'));
+
+    /* Username availability, checked while typing. */
+    const nameStatus = h('p', { class: 'su-status small', 'aria-live': 'polite' });
+    let nameTimer = null;
+    function checkUsername() {
+      const value = form.elements.username.value.trim();
+      clearTimeout(nameTimer);
+      nameStatus.removeAttribute('data-state');
+      if (!value) { nameStatus.textContent = ''; return; }
+      if (!/^[A-Za-z0-9_]{3,20}$/.test(value)) { nameStatus.textContent = 'Use 3 to 20 letters, numbers or underscores.'; nameStatus.dataset.state = 'bad'; return; }
+      nameStatus.textContent = 'Checking…';
+      const ticket = ++usernameCheck;
+      nameTimer = setTimeout(function () {
+        BT.usernameAvailable(value).then(function (free) {
+          if (ticket !== usernameCheck) return;
+          nameStatus.textContent = free ? '@' + value + ' is available' : '@' + value + ' is taken. Try another.';
+          nameStatus.dataset.state = free ? 'good' : 'bad';
+        }).catch(function () { if (ticket === usernameCheck) nameStatus.textContent = ''; });
+      }, 350);
+    }
+
+    /* Password strength, as a hint only. */
+    const meter = h('div', { class: 'su-strength', 'aria-live': 'polite' }, h('span', { class: 'su-strength-bar' }, h('i')), h('span', { class: 'su-strength-label small' }));
+    function strength() {
+      const v = form.elements.password.value;
+      let score = 0;
+      if (v.length >= 8) score++;
+      if (v.length >= 12) score++;
+      if (/[a-z]/.test(v) && /[A-Z]/.test(v)) score++;
+      if (/[0-9]/.test(v)) score++;
+      if (/[^A-Za-z0-9]/.test(v)) score++;
+      const level = !v ? 0 : v.length < 8 ? 1 : score <= 2 ? 2 : score <= 3 ? 3 : 4;
+      meter.dataset.level = String(level);
+      meter.querySelector('.su-strength-label').textContent = ['', 'Too short', 'Weak', 'Good', 'Strong'][level];
+    }
+
+    function suggestUsername() {
+      const el = form.elements.username;
+      if (el.value.trim()) return;
+      const base = form.elements.name.value.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '').slice(0, 16);
+      if (base.length >= 3) { el.value = base; checkUsername(); }
+    }
+
+    const panes = [
+      h('div', { class: 'su-pane' },
+        field({ name: 'name', label: 'Full name', attrs: { autocomplete: 'name', maxlength: 60, placeholder: 'Juan Dela Cruz' } })),
+      h('div', { class: 'su-pane' },
+        field({ name: 'birthday', label: 'Birthday', type: 'date', attrs: { autocomplete: 'bday', max: BT.today() } }),
+        h('p', { class: 'su-age small muted', 'aria-live': 'polite' })),
+      h('div', { class: 'su-pane' },
+        field({ name: 'email', label: 'Email', type: 'email', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'you@example.com' } }),
+        h('p', { class: 'su-fine small' }, 'We’ll send a link to verify it. You may also get account alerts from us, like when someone joins your circle.')),
+      h('div', { class: 'su-pane' },
+        field({ name: 'username', label: 'Username', attrs: { autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', maxlength: 20, placeholder: 'juandc' } }),
+        nameStatus),
+      h('div', { class: 'su-pane' },
+        field({ name: 'password', label: 'Password', type: 'password', attrs: { autocomplete: 'new-password', maxlength: 128, placeholder: 'Password' } }),
+        meter,
+        h('div', { class: 'su-fine small' },
+          h('p', null, 'Your budget is private. Only you, and the one trusted person you choose, can see your entries, goals and debts.'),
+          h('p', null, 'By tapping Submit, you agree to create a PassbookHub account and to let us store the information you give us so the app can work for you.')))
+    ];
+
+    const next = h('button', { class: 'btn primary full su-next', type: 'submit' }, 'Next');
+    const have = h('a', { class: 'btn full su-have', href: '#signin' }, 'I already have an account');
+
     const form = h('form', {
-      class: 'stack',
+      class: 'su-form shake-errors',
       novalidate: true,
+      'aria-labelledby': 'su-title',
       onsubmit: function (event) {
         event.preventDefault();
-        const input = {
-          name: form.elements.name.value.trim().replace(/\s+/g, ' '),
-          birthday: form.elements.birthday.value,
-          username: form.elements.username.value.trim(),
-          password: form.elements.password.value,
-          email: form.elements.email.value.trim().toLowerCase()
-        };
+        const input = values();
         const errors = BT.validateSignUp(input, BT.today());
-        if (Object.keys(errors).length) return showErrors(form, errors);
+        const key = STEPS[step].key;
+        if (errors[key]) return showErrors(form, pick(errors, key));
+        clearErrors(form);
+        if (step === 2) {
+          return busy(form, 'Checking…', async function () {
+            if (await BT.emailHasAccount(input.email)) throw new BT.FieldError({ email: 'That email already has an account. Tap “I already have an account” to sign in.' });
+            setTimeout(function () { go(3); }, 0);
+          });
+        }
+        if (step === 3) {
+          return busy(form, 'Checking…', async function () {
+            if (!(await BT.usernameAvailable(input.username))) throw new BT.FieldError({ username: 'That username is taken. Try another.' });
+            setTimeout(function () { go(4); }, 0);
+          });
+        }
+        if (step < STEPS.length - 1) return go(step + 1);
+        /* Last step: anything still wrong sends you back to its screen. */
+        const firstBad = STEPS.findIndex(function (s) { return errors[s.key]; });
+        if (firstBad !== -1) { go(firstBad); return showErrors(form, pick(errors, STEPS[firstBad].key)); }
         busy(form, 'Creating account…', async function () {
-          await BT.createUser(input);
+          try {
+            await BT.createUser(input);
+          } catch (error) {
+            if (error instanceof BT.FieldError) {
+              const at = STEPS.findIndex(function (s) { return error.fields[s.key]; });
+              if (at !== -1) setTimeout(function () { go(at); showErrors(form, error.fields); }, 0);
+            }
+            throw error;
+          }
           render();
         });
       }
     },
-      field({ name: 'email', label: 'Email', type: 'email', hint: 'We use this to verify your account.', attrs: { autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'you@example.com' } }),
-      h('div', { class: 'field-row' },
-        field({ name: 'name', label: 'Full name', attrs: { autocomplete: 'name', maxlength: 60, placeholder: 'Juan Dela Cruz' } }),
-        field({ name: 'username', label: 'Username', attrs: { autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', maxlength: 20, placeholder: 'juandc' } })),
-      field({ name: 'birthday', label: 'Birthday', type: 'date', hint: 'You must be ' + BT.MIN_AGE + ' or older.', attrs: { autocomplete: 'bday', max: BT.today() } }),
-      field({ name: 'password', label: 'Password', type: 'password', hint: 'At least 8 characters.', attrs: { autocomplete: 'new-password', maxlength: 128, placeholder: 'Create a password' } }),
+      h('div', { class: 'su-top' }, back, h('div', { class: 'su-progress' }, count, bar)),
+      title, sub,
+      panes,
       formError(),
-      h('button', { class: 'btn primary full', type: 'submit' }, 'Continue'));
+      next, have);
+
+    function pick(errors, key) { const o = {}; o[key] = errors[key]; return o; }
+    function values() {
+      return {
+        name: form.elements.name.value.trim().replace(/\s+/g, ' '),
+        birthday: form.elements.birthday.value,
+        username: form.elements.username.value.trim(),
+        password: form.elements.password.value,
+        email: form.elements.email.value.trim().toLowerCase()
+      };
+    }
+    function go(n) {
+      if (n < 0 || n >= STEPS.length) return;
+      const forward = n > step;
+      step = n;
+      panes.forEach(function (p, i) { p.hidden = i !== n; p.classList.toggle('su-in-back', !forward); });
+      title.textContent = STEPS[n].title;
+      sub.textContent = STEPS[n].sub;
+      count.textContent = 'Step ' + (n + 1) + ' of ' + STEPS.length;
+      bar.firstChild.style.width = ((n + 1) / STEPS.length * 100) + '%';
+      back.style.visibility = n === 0 ? 'hidden' : 'visible';
+      next.textContent = n === STEPS.length - 1 ? 'Submit' : 'Next';
+      if (host) host.classList.toggle('su-later', n > 0);
+      if (n === 3) suggestUsername();
+      const control = form.elements[STEPS[n].key];
+      setTimeout(function () { if (control && control.isConnected) control.focus(); }, 30);
+    }
+
+    form.elements.username.addEventListener('input', checkUsername);
+    form.elements.password.addEventListener('input', strength);
+    form.elements.birthday.addEventListener('change', function () {
+      const age = BT.ageOn(form.elements.birthday.value, BT.today());
+      form.querySelector('.su-age').textContent = age !== null && age >= 0 && age < 131 ? 'You’re ' + age + ' years old.' : '';
+    });
+    strength();
+    go(0);
     return form;
   }
 

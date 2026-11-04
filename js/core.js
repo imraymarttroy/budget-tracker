@@ -397,6 +397,17 @@ window.BT = (function () {
     return null;
   }
 
+  /** True when nobody has claimed this username yet. */
+  async function usernameAvailable(username) {
+    const snap = await F().getDoc(nameDoc(username)).catch(function (e) { throw friendly(e); });
+    return !snap.exists();
+  }
+  /** True when this email already has a PassbookHub account. Unknown counts as false. */
+  async function emailHasAccount(email) {
+    const snap = await F().getDoc(emailDoc(email)).catch(function () { return null; });
+    return !!(snap && snap.exists());
+  }
+
   /** Creates the sign-in account, claims the username, saves the profile and sends a verification email. */
   async function createUser(input) {
     signUpInProgress = true;
@@ -891,7 +902,7 @@ window.BT = (function () {
     monthLabel: monthLabel, shortDate: shortDate, longDate: longDate, validEmail: validEmail,
     onSessionChange: onSessionChange, sessionState: sessionState, currentUser: currentUser, reloadSession: reloadSession,
     validateSignUp: validateSignUp, validatePassword: validatePassword,
-    createUser: createUser, updateUser: updateUser, deleteAccount: deleteAccount, discardOrphan: discardOrphan,
+    createUser: createUser, usernameAvailable: usernameAvailable, emailHasAccount: emailHasAccount, updateUser: updateUser, deleteAccount: deleteAccount, discardOrphan: discardOrphan,
     signIn: signIn, signOut: signOut,
     socialSignIn: socialSignIn, socialLabel: socialLabel, socialName: socialName, takeRedirectError: takeRedirectError,
     validateSocialProfile: validateSocialProfile, completeSocialProfile: completeSocialProfile,

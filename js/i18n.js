@@ -14,6 +14,25 @@
 
   /* Exact UI strings (matched after trimming; surrounding spaces are kept). */
   const FIL = {
+    // Sign up wizard
+    'What’s your name?': 'Ano ang pangalan mo?',
+    'Enter the name you use in real life. People in your circle will see it.': 'Ilagay ang pangalang gamit mo sa totoong buhay. Makikita ito ng circle mo.',
+    'What’s your birthday?': 'Kailan ang birthday mo?',
+    'What’s your email?': 'Ano ang email mo?',
+    'Enter the email where we can reach you. No one else will see it.': 'Ilagay ang email kung saan ka namin makokontak. Walang ibang makakakita nito.',
+    'Create a username': 'Gumawa ng username',
+    'This is how people find you on PassbookHub. You can change it later.': 'Dito ka mahahanap ng iba sa PassbookHub. Puwede mo itong palitan mamaya.',
+    'Use at least 8 characters. A mix of letters, numbers and symbols is stronger.': 'Gumamit ng hindi bababa sa 8 character. Mas matibay kung may letra, numero at simbolo.',
+    'Next': 'Susunod',
+    'Submit': 'Isumite',
+    'I already have an account': 'May account na ako',
+    'Too short': 'Masyadong maikli',
+    'Weak': 'Mahina',
+    'Good': 'Ayos',
+    'Strong': 'Matibay',
+    'We’ll send a link to verify it. You may also get account alerts from us, like when someone joins your circle.': 'Magpapadala kami ng link para i-verify ito. Puwede ka ring makatanggap ng alerts mula sa amin, gaya ng kapag may sumali sa circle mo.',
+    'Your budget is private. Only you, and the one trusted person you choose, can see your entries, goals and debts.': 'Pribado ang budget mo. Ikaw lang at ang trusted person na pipiliin mo ang makakakita ng entries, goals at utang mo.',
+    'By tapping Submit, you agree to create a PassbookHub account and to let us store the information you give us so the app can work for you.': 'Sa pag-tap ng Isumite, pumapayag kang gumawa ng PassbookHub account at itago namin ang impormasyong ibinigay mo para gumana ang app para sa iyo.',
     // Goal categories, activity log, monthly statement
     'Family': 'Pamilya',
     'Personal': 'Personal',
