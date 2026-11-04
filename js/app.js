@@ -3996,6 +3996,9 @@
                 h('strong', null, share && share.role === 'edit' ? 'view and edit' : 'view'), ' their dashboard. Nobody else in their circle can see it.')
             : note.type === 'trusted'
             ? h('p', null, link, ' accepted. They can now see your dashboard.')
+            : note.type === 'debt'
+            ? h('p', null, link, note.dir === 'owe' ? ' noted that they owe you ' : ' noted that you owe them ',
+                h('strong', { class: 'num' }, BT.formatMoney(note.cents || 0, note.currency || 'PHP')), '.')
             : h('p', null, link, ' accepted your circle request.');
           let actions = null;
           if (note.type === 'trust' && (!share || share.status !== 'pending')) {

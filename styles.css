@@ -2173,7 +2173,39 @@ button.ov-goal:hover { border-color: var(--line-strong); }
 .ov-chip:hover { border-color: var(--line-strong); color: var(--ink); }
 .ov-chip:active { transform: scale(0.95); }
 .ov-chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
-.ov-suggest { animation: ov-fade 0.15s ease-out; }
+/* Name field: suggestions and tagged circle member */
+.acct-field:has(.ov-suggest) { position: relative; }
+.ov-suggest { position: absolute; z-index: 5; top: 4.6rem; left: 0; right: 0; display: flex; flex-direction: column; padding: 0.3rem; border: 1px solid var(--line-strong); border-radius: 0.75rem; background: var(--surface); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28); animation: ov-fade 0.15s ease-out; max-height: 17rem; overflow: auto; }
+.ov-suggest[hidden] { display: none; }
+.ov-suggest-head { margin: 0.35rem 0.5rem 0.15rem; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2); }
+.ov-suggest-item { display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.4rem 0.5rem; border: 0; border-radius: 0.5rem; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ov-suggest-item:hover, .ov-suggest-item.active { background: var(--wash); }
+.ov-suggest-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ov-suggest-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-suggest-sub { font-size: 0.75rem; color: var(--ink-2); }
+.ov-suggest-badge { font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--brand); color: #1d1c28; }
+.ov-suggest-empty { margin: 0.4rem 0.5rem; font-size: 0.8rem; color: var(--ink-2); }
+.ov-noavatar { background: transparent; border: 1px dashed var(--line-strong); }
+.ov-ptag-hint { margin: 0.1rem 0 0; }
+.ov-ptag-hint[hidden] { display: none; }
+.acct-form .ov-ptag { display: flex; width: 100%; box-sizing: border-box; align-items: center; gap: 0.65rem; margin-top: 0; padding: 0.5rem 0.4rem 0.5rem 0.6rem; border: 1px solid var(--brand); border-radius: 0.75rem; background: color-mix(in srgb, var(--brand) 12%, transparent); animation: ov-fade 0.18s ease-out; }
+.ov-ptag[hidden] { display: none; }
+.ov-ptag-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1; }
+.ov-ptag-top { display: flex; gap: 0.4rem; align-items: baseline; min-width: 0; }
+.ov-ptag-name { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-ptag-user { font-size: 0.8rem; color: var(--ink-2); }
+.acct-form .ov-ptag-notify { align-self: flex-start; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; font-weight: 500; color: var(--ink-2); cursor: pointer; }
+.acct-form .ov-ptag-notify input[type="checkbox"] { flex: none; width: 1rem; height: 1rem; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); }
+.ov-ptag-x { flex: none; }
+.acct-form input#f-ov-person[hidden] { display: none; }
+.ov-pv-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.ov-pv-top { display: flex; gap: 0.4rem; align-items: baseline; min-width: 0; }
+.ov-pv-user { font-size: 0.75rem; color: var(--ink-2); flex: none; }
+/* Not on PassbookHub: plain initial, no picture colour. */
+.ov-pv:not(.tagged):not(.empty) .ov-pv-avatar { background: var(--line); color: var(--ink); }
+.ov-pv.tagged .ov-pv-avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--brand); }
+.ov-row-pic { display: inline-flex; vertical-align: -0.25rem; margin-right: 0.4rem; }
+.ov-row-pic:empty { display: none; }
 .ov-quick { flex-wrap: nowrap; gap: 0.3rem; }
 .ov-quick .ov-chip { padding: 0.25rem 0.55rem; font-variant-numeric: tabular-nums; }
 .ov-due-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }

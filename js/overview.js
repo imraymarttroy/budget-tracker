@@ -378,6 +378,19 @@ window.OVERVIEW = (function () {
     }
 
     /* ---- Debts (utang) ---- */
+    /* Small profile picture for a debt tagged to a PassbookHub user. Fills in once the profile loads. */
+    function taggedPic(uid) {
+      const slot = h('span', { class: 'ov-row-pic', 'aria-hidden': 'true' });
+      SOC.getProfile(uid).then(function (p) {
+        if (!p) return;
+        slot.replaceChildren(p.avatar && String(p.avatar).indexOf('data:image/jpeg;base64,') === 0
+          ? h('img', { class: 'avatar', src: p.avatar, alt: '', style: '--size:1.25rem' })
+          : h('span', { class: 'avatar', style: '--size:1.25rem;font-size:0.55rem' }, String(p.name || '?').charAt(0).toUpperCase()));
+        slot.title = '@' + p.username;
+      }).catch(function () {});
+      return slot;
+    }
+
     function drawDebts(c) {
       const dirs = [['owe', 'I owe', c.iOwe], ['lent', 'Owed to me', c.owedMe]];
       const head = h('div', { class: 'ov-card-head' }, h('h2', { id: 'ov-debt-h' }, 'Debts'),
@@ -406,7 +419,7 @@ window.OVERVIEW = (function () {
           const pct = Math.round(d.paidCents / d.cents * 100);
           const body = [
             h('span', { class: 'ov-list-main' },
-              h('span', { class: 'ov-list-title' }, d.person),
+              h('span', { class: 'ov-list-title' }, d.uid ? taggedPic(d.uid) : null, d.person),
               h('span', { class: 'small muted ov-debt-sub' },
                 d.note ? d.note + ' · ' : '',
                 paid ? 'Fully paid' : d.due ? (overdue ? 'Was due ' : 'Due ') + BT.shortDate(d.due) : 'No due date'),
@@ -556,11 +569,12 @@ window.OVERVIEW = (function () {
       /* ---- Live preview card ---- */
       const pvAvatar = h('span', { class: 'ov-pv-avatar', 'aria-hidden': 'true' });
       const pvName = h('span', { class: 'ov-pv-name' });
+      const pvUser = h('span', { class: 'ov-pv-user' });
       const pvSub = h('span', { class: 'ov-pv-sub' });
       const pvAmount = h('span', { class: 'ov-pv-amount num' });
       const pvLabel = h('span', { class: 'ov-pv-label' });
       const preview = h('div', { class: 'ov-pv', 'aria-live': 'polite' },
-        pvAvatar, h('div', { class: 'ov-pv-main' }, pvName, pvSub),
+        pvAvatar, h('div', { class: 'ov-pv-main' }, h('span', { class: 'ov-pv-top' }, pvName, pvUser), pvSub),
         h('div', { class: 'ov-pv-right' }, pvAmount, pvLabel));
       let shown = 0, anim = 0;
       function countTo(target) {
@@ -594,25 +608,113 @@ window.OVERVIEW = (function () {
         (dirValue === 'owe' ? segOwe : segLent).focus();
       });
 
-      /* ---- Name with suggestions from people already in the book ---- */
-      const person = input('person', 'Who do you owe?', { maxlength: 40, autocomplete: 'off', placeholder: 'e.g. Tita Lorna, Juan, Home Credit' }, true);
+      /* ---- Name: tag someone from your circle, or type any name ---- */
+      const person = input('person', 'Who do you owe?', { maxlength: 40, autocomplete: 'off', placeholder: 'Type a name, or @ to tag someone in your circle' }, true);
       person.control.value = d.person;
       const personLabel = person.wrap.querySelector('label');
       const known = [];
-      (data.debts || []).forEach(function (x) { if (x.person && known.indexOf(x.person) === -1) known.push(x.person); });
-      const suggest = h('div', { class: 'ov-chips ov-suggest', hidden: true });
-      person.wrap.insertBefore(suggest, person.wrap.querySelector('.error'));
+      (data.debts || []).forEach(function (x) { if (x.person && !x.uid && known.indexOf(x.person) === -1) known.push(x.person); });
+      const canTag = !owner;   /* Only in your own book: alerts go out from you. */
+      let circle = null;       /* null until loaded */
+      let linked = null;       /* the tagged circle member, if any */
+      const startUid = existing && existing.uid ? existing.uid : '';
+      if (canTag) {
+        SOC.circleMembers().then(function (list) { circle = list; drawSuggest(); }).catch(function () { circle = []; });
+      }
+      if (startUid) {
+        SOC.getProfile(startUid).then(function (p) { if (p && !linked && person.control.value.trim() === d.person) setLinked(p, true); }).catch(function () {});
+      }
+
+      function personPic(p, size) {
+        const style = '--size:' + size + 'rem';
+        if (p && p.avatar && String(p.avatar).indexOf('data:image/jpeg;base64,') === 0) return h('img', { class: 'avatar', src: p.avatar, alt: '', style: style });
+        const letters = String(p.name || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return Array.from(w)[0] || ''; }).join('').toUpperCase();
+        return h('span', { class: 'avatar', style: style + ';font-size:' + (size * 0.4) + 'rem', 'aria-hidden': 'true' }, letters);
+      }
+
+      const suggest = h('div', { class: 'ov-suggest', role: 'listbox', hidden: true });
+      const notify = h('input', { type: 'checkbox', id: 'f-ov-notify' });
+      const tagName = h('span', { class: 'ov-ptag-name' });
+      const tagUser = h('span', { class: 'ov-ptag-user' });
+      const tagPic = h('span', { class: 'ov-ptag-pic' });
+      const tag = h('div', { class: 'ov-ptag', hidden: true },
+        tagPic,
+        h('div', { class: 'ov-ptag-main' }, h('span', { class: 'ov-ptag-top' }, tagName, tagUser),
+          h('label', { class: 'ov-ptag-notify', for: 'f-ov-notify' }, notify, h('span', null, 'Notify them'))),
+        h('button', { type: 'button', class: 'icon-btn ov-ptag-x', 'aria-label': 'Untag', title: 'Untag', onclick: function () { setLinked(null); person.control.select(); } }, icon('close')));
+      person.wrap.insertBefore(tag, person.wrap.querySelector('.error'));
+      person.wrap.insertBefore(suggest, tag);
+      const tagHint = canTag ? h('p', { class: 'small muted ov-ptag-hint' }, 'Tip: type @ to tag someone in your circle. They get a notification.') : null;
+      if (tagHint) person.wrap.insertBefore(tagHint, tag);
+
+      function setLinked(p, quiet) {
+        linked = p;
+        tag.hidden = !p;
+        person.control.hidden = !!p;
+        person.wrap.classList.toggle('linked', !!p);
+        if (tagHint) tagHint.hidden = !!p;
+        if (p) {
+          person.control.value = p.name.slice(0, 40);
+          tagName.textContent = p.name;
+          tagUser.textContent = p.username ? '@' + p.username : '';
+          tagPic.replaceChildren(personPic(p, 2));
+          /* New tags notify by default; re-saving an old tag doesn't, unless you tick it. */
+          notify.checked = !(quiet || p.id === startUid);
+          suggest.hidden = true;
+          clearError('person');
+        }
+        drawPreview();
+      }
+
+      let active = -1, options = [];
       function drawSuggest() {
-        const q = person.control.value.trim().toLowerCase();
-        const list = known.filter(function (n) { return n.toLowerCase() !== q && (!q || n.toLowerCase().indexOf(q) !== -1); }).slice(0, 5);
-        suggest.replaceChildren.apply(suggest, list.map(function (n) {
-          return h('button', { type: 'button', class: 'ov-chip', onmousedown: function (e) { e.preventDefault(); },
-            onclick: function () { person.control.value = n; suggest.hidden = true; clearError('person'); drawPreview(); total.control.focus(); } }, n);
-        }));
-        suggest.hidden = !list.length || document.activeElement !== person.control;
+        const raw = person.control.value;
+        const at = raw.trim().charAt(0) === '@';
+        const q = raw.trim().replace(/^@/, '').toLowerCase();
+        const people = canTag && circle ? circle.filter(function (p) {
+          if (linked && p.id === linked.id) return false;
+          return !q || p.name.toLowerCase().indexOf(q) !== -1 || (p.username || '').toLowerCase().indexOf(q) === 0;
+        }).slice(0, 5) : [];
+        const names = at || linked ? [] : known.filter(function (n) { return n.toLowerCase() !== q && (!q || n.toLowerCase().indexOf(q) !== -1); }).slice(0, 4);
+        options = people.map(function (p) { return { person: p }; }).concat(names.map(function (n) { return { name: n }; }));
+        active = options.length && (at || q) ? 0 : -1;
+        const rows = [];
+        if (people.length) rows.push(h('p', { class: 'ov-suggest-head' }, 'In your circle'));
+        options.forEach(function (o, i) {
+          if (o.name && (i === people.length)) rows.push(h('p', { class: 'ov-suggest-head' }, 'Used before'));
+          rows.push(h('button', { type: 'button', role: 'option', class: 'ov-suggest-item', 'data-i': i,
+            onmousedown: function (e) { e.preventDefault(); }, onclick: function () { pick(i); } },
+            o.person ? personPic(o.person, 1.75) : h('span', { class: 'avatar ov-noavatar', style: '--size:1.75rem', 'aria-hidden': 'true' }, ' '),
+            h('span', { class: 'ov-suggest-text' },
+              h('span', { class: 'ov-suggest-name' }, o.person ? o.person.name : o.name),
+              o.person ? h('span', { class: 'ov-suggest-sub' }, '@' + o.person.username) : h('span', { class: 'ov-suggest-sub' }, 'Not on PassbookHub')),
+            o.person ? h('span', { class: 'ov-suggest-badge' }, 'Tag') : null));
+        });
+        if (at && canTag && circle && !people.length) rows.push(h('p', { class: 'ov-suggest-empty' }, circle.length ? 'No one in your circle matches.' : 'Your circle is empty. Add people from the Circle page to tag them.'));
+        suggest.replaceChildren.apply(suggest, rows);
+        suggest.hidden = !rows.length || document.activeElement !== person.control;
+        paintActive();
+      }
+      function paintActive() {
+        suggest.querySelectorAll('.ov-suggest-item').forEach(function (b) { b.classList.toggle('active', Number(b.getAttribute('data-i')) === active); });
+      }
+      function pick(i) {
+        const o = options[i];
+        if (!o) return;
+        if (o.person) setLinked(o.person);
+        else { person.control.value = o.name; setLinked(null); }
+        suggest.hidden = true;
+        clearError('person'); drawPreview(); total.control.focus();
       }
       person.control.addEventListener('focus', drawSuggest);
       person.control.addEventListener('blur', function () { suggest.hidden = true; });
+      person.control.addEventListener('keydown', function (e) {
+        if (suggest.hidden || !options.length) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); active = (active + 1) % options.length; paintActive(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); active = (active - 1 + options.length) % options.length; paintActive(); }
+        else if (e.key === 'Enter' && active >= 0 && !(e.ctrlKey || e.metaKey)) { e.preventDefault(); pick(active); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); suggest.hidden = true; }
+      });
 
       /* ---- Amounts ---- */
       const total = input('cents', 'Amount (' + book.currency + ')', Object.assign({ placeholder: '0.00' }, moneyAttrs), true);
@@ -726,18 +828,27 @@ window.OVERVIEW = (function () {
         if (box) box.hidden = true;
         if (ctl) ctl.removeAttribute('aria-invalid');
       }
-      person.control.addEventListener('input', function () { clearError('person'); drawSuggest(); drawPreview(); });
+      person.control.addEventListener('input', function () {
+        if (linked && person.control.value.trim() !== linked.name.slice(0, 40)) setLinked(null);
+        clearError('person'); drawSuggest(); drawPreview();
+      });
       person.control.addEventListener('blur', function () { if (person.control.value && !person.control.value.trim()) showError('person', 'Enter a name.'); });
       total.control.addEventListener('blur', function () { if (total.control.value !== '' && cents(total.control) <= 0) showError('cents', 'Enter an amount above zero.'); });
 
       function bump(node) { if (reduceMotion) return; node.classList.remove('bump'); void node.offsetWidth; node.classList.add('bump'); }
 
       function drawPreview() {
-        const name = person.control.value.trim();
+        const name = person.control.value.trim().replace(/^@\S*$/, '');
         pvName.textContent = name || (dirValue === 'owe' ? 'Who do you owe?' : 'Who owes you?');
         preview.classList.toggle('empty', !name);
-        pvAvatar.textContent = name ? name.charAt(0).toUpperCase() : '?';
+        preview.classList.toggle('tagged', !!linked);
+        if (linked && linked.avatar && String(linked.avatar).indexOf('data:image/jpeg;base64,') === 0) {
+          pvAvatar.replaceChildren(h('img', { src: linked.avatar, alt: '' }));
+        } else {
+          pvAvatar.textContent = name ? name.charAt(0).toUpperCase() : '?';
+        }
         pvAvatar.style.setProperty('--h', name ? hue(name) : 230);
+        pvUser.textContent = linked && linked.username ? '@' + linked.username : '';
         const bits = [dirValue === 'owe' ? 'You owe' : 'Owes you'];
         if (note.control.value.trim()) bits.push(note.control.value.trim());
         if (dueText) bits.push(dueText);
@@ -772,15 +883,20 @@ window.OVERVIEW = (function () {
           h('div', { class: 'acct-row' }, total.wrap, paid.wrap), summary,
           dueWrap, note.wrap, addNote],
         async function () {
-          const next = { dir: dirValue, person: person.control.value, note: note.control.value, cents: cents(total.control), paidCents: cents(paid.control), due: due.control.value };
+          const next = { dir: dirValue, person: person.control.value, note: note.control.value, cents: cents(total.control), paidCents: cents(paid.control), due: due.control.value,
+            uid: canTag ? (linked ? linked.id : '') : (existing && existing.uid) || '' };
           const problems = SOC.validateDebt(next);
           if (problems) {
             if (problems.note) { note.wrap.hidden = false; addNote.hidden = true; }
             Object.keys(problems).forEach(function (k) { const c = document.getElementById('f-ov-' + k); if (c) c.setAttribute('aria-invalid', 'true'); });
             return problems;
           }
-          await SOC.saveDebt(owner, existing && existing.id, next);
-          ctx.toast(existing ? 'Debt updated.' : 'Debt added.');
+          const id = await SOC.saveDebt(owner, existing && existing.id, next);
+          if (canTag && linked && notify.checked) {
+            const first = linked.name.split(' ')[0];
+            try { await SOC.notifyDebt(linked.id, id, next, book.currency); ctx.toast((existing ? 'Debt updated. ' : 'Debt added. ') + first + ' was notified.'); }
+            catch (e) { ctx.toast('Debt saved, but we couldn\u2019t notify ' + first + '.'); }
+          } else ctx.toast(existing ? 'Debt updated.' : 'Debt added.');
           debtDir = next.dir;
           return null;
         },
@@ -789,7 +905,7 @@ window.OVERVIEW = (function () {
       if (form) form.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); form.requestSubmit(); }
       });
-      if (!existing) person.control.focus();
+      if (!existing && !person.control.hidden) person.control.focus();
     }
 
     function goalForm(existing, isNew) {

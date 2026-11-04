@@ -79,7 +79,9 @@ service cloud.firestore {
         allow read: if signedInAs(uid) || trustedBy(uid);
         allow delete: if signedInAs(uid) || trustedEditorOf(uid);
         allow create, update: if (signedInAs(uid) || trustedEditorOf(uid))
-          && request.resource.data.keys().hasOnly(['dir', 'person', 'note', 'cents', 'paidCents', 'due', 'createdAt', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['dir', 'person', 'note', 'cents', 'paidCents', 'due', 'uid', 'createdAt', 'updatedAt'])
+          && (!('uid' in request.resource.data) || (request.resource.data.uid is string
+              && request.resource.data.uid.size() > 0 && request.resource.data.uid.size() <= 128 && request.resource.data.uid != uid))
           && request.resource.data.dir in ['owe', 'lent']
           && request.resource.data.person is string && request.resource.data.person.size() > 0 && request.resource.data.person.size() <= 40
           && request.resource.data.note is string && request.resource.data.note.size() <= 80
@@ -238,13 +240,27 @@ service cloud.firestore {
           && request.resource.data.username is string && request.resource.data.username.size() <= 20;
       }
 
-      // notifications/{id}: only the owner reads them. Others may only leave the two kinds below.
+      // notifications/{id}: only the owner reads them. Others may only leave the kinds below.
       match /notifications/{noteId} {
+        // debt: someone in this person's circle tagged them on a debt in their own book.
+        // The alert must match that debt (same person, direction and amount).
+        function debtNote() {
+          let d = request.resource.data;
+          let debt = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/debts/$(d.debtId)).data;
+          return d.keys().hasOnly(['type', 'from', 'createdAt', 'read', 'debtId', 'dir', 'cents', 'currency'])
+            && d.debtId is string && d.debtId.size() > 0 && d.debtId.size() <= 64
+            && noteId == 'debt_' + request.auth.uid + '_' + d.debtId
+            && d.createdAt is int
+            && d.currency is string && d.currency.size() <= 5
+            && exists(/databases/$(database)/documents/profiles/$(uid)/circle/$(request.auth.uid))
+            && debt.uid == uid && debt.dir == d.dir && debt.cents == d.cents;
+        }
         function validNote() {
           return verified()
-            && request.resource.data.keys().hasOnly(['type', 'from', 'createdAt', 'read'])
             && request.resource.data.from == request.auth.uid
             && request.resource.data.read == false
+            && ((request.resource.data.type == 'debt' && debtNote())
+              || (request.resource.data.keys().hasOnly(['type', 'from', 'createdAt', 'read'])
             && ((request.resource.data.type == 'request' && noteId == 'request_' + request.auth.uid
                   && existsAfter(/databases/$(database)/documents/profiles/$(uid)/requests/$(request.auth.uid)))
               || (request.resource.data.type == 'accepted' && noteId == 'accepted_' + request.auth.uid
@@ -253,7 +269,7 @@ service cloud.firestore {
                   && getAfter(/databases/$(database)/documents/trust/$(request.auth.uid)).data.member == uid)
               || (request.resource.data.type == 'trusted' && noteId == 'trusted_' + request.auth.uid
                   && getAfter(/databases/$(database)/documents/trust/$(uid)).data.member == request.auth.uid
-                  && getAfter(/databases/$(database)/documents/trust/$(uid)).data.status == 'accepted'));
+                  && getAfter(/databases/$(database)/documents/trust/$(uid)).data.status == 'accepted'))));
         }
         allow read: if signedInAs(uid);
         allow create: if validNote();

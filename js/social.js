@@ -898,10 +898,15 @@ window.SOC = (function () {
     if (!okCents(d.paidCents, 0)) errors.paidCents = 'Enter zero or more.';
     else if (!errors.cents && d.paidCents > d.cents) errors.paidCents = 'Paid can’t be more than the total.';
     if (!isDate(d.due || '')) errors.due = 'Enter a valid date.';
+    if (d.uid && (typeof d.uid !== 'string' || d.uid.length > 128)) errors.person = 'Choose someone from your circle again.';
     return Object.keys(errors).length ? errors : null;
   }
-  function debtFields(d) {
-    return { dir: d.dir, person: d.person.trim(), note: (d.note || '').trim(), cents: d.cents, paidCents: d.paidCents, due: d.due || '', updatedAt: Date.now() };
+  function debtFields(d, forUpdate) {
+    const out = { dir: d.dir, person: d.person.trim(), note: (d.note || '').trim(), cents: d.cents, paidCents: d.paidCents, due: d.due || '', updatedAt: Date.now() };
+    /* uid links the debt to a PassbookHub user from your circle. Plain names have none. */
+    if (d.uid) out.uid = d.uid;
+    else if (forUpdate) out.uid = F().deleteField();
+    return out;
   }
   function validateGoal(g) {
     const errors = {};
@@ -924,10 +929,22 @@ window.SOC = (function () {
   }
   function watchDebts(owner, onChange, onError) { return watchList(debtsCol, owner, onChange, onError); }
   function watchGoals(owner, onChange, onError) { return watchList(goalsCol, owner, onChange, onError); }
+  /** Saves a debt and returns its id. */
   async function saveDebt(owner, id, d) {
     const col = debtsCol(owner || me());
-    if (id) return run(function () { return F().updateDoc(F().doc(col, id), debtFields(d)); });
-    return run(function () { return F().setDoc(F().doc(col), Object.assign({ createdAt: Date.now() }, debtFields(d))); });
+    if (id) { await run(function () { return F().updateDoc(F().doc(col, id), debtFields(d, true)); }); return id; }
+    const ref = F().doc(col);
+    await run(function () { return F().setDoc(ref, Object.assign({ createdAt: Date.now() }, debtFields(d))); });
+    return ref.id;
+  }
+  /** Tells a tagged circle member about a debt in your own book. One alert per debt, replaced on each send. */
+  async function notifyDebt(uid, debtId, d, currency) {
+    await run(function () {
+      return F().setDoc(F().doc(notesCol(uid), 'debt_' + me() + '_' + debtId), {
+        type: 'debt', from: me(), createdAt: Date.now(), read: false,
+        debtId: debtId, dir: d.dir, cents: d.cents, currency: String(currency || '').slice(0, 5)
+      });
+    });
   }
   async function deleteDebt(owner, id) { await run(function () { return F().deleteDoc(F().doc(debtsCol(owner || me()), id)); }); }
   async function saveGoal(owner, id, g) {
@@ -1013,7 +1030,7 @@ window.SOC = (function () {
     ACCOUNT_TYPES: ACCOUNT_TYPES, validateAccount: validateAccount, watchAccounts: watchAccounts,
     addAccount: addAccount, updateAccount: updateAccount, deleteAccount: deleteAccount,
     DEBT_DIRS: DEBT_DIRS, GOAL_KINDS: GOAL_KINDS, validateDebt: validateDebt, validateGoal: validateGoal,
-    watchDebts: watchDebts, saveDebt: saveDebt, deleteDebt: deleteDebt, watchGoals: watchGoals, saveGoal: saveGoal, deleteGoal: deleteGoal,
+    watchDebts: watchDebts, saveDebt: saveDebt, notifyDebt: notifyDebt, deleteDebt: deleteDebt, watchGoals: watchGoals, saveGoal: saveGoal, deleteGoal: deleteGoal,
     watchSharedTx: watchSharedTx, addSharedTx: addSharedTx, updateSharedTx: updateSharedTx, deleteSharedTx: deleteSharedTx, restoreSharedTx: restoreSharedTx
   };
 })();
